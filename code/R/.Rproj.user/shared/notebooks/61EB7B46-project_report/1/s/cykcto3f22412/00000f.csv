@@ -1,0 +1,4 @@
+"0","# Rescale post-hoc the likert scale values that are between 1-10 to 0-1"
+"0",""
+"0","df.raw.merged$likert_response <- (df.raw.merged$likert_response - 1) / 9"
+"0",""

@@ -1,0 +1,4 @@
+"0","# load the sem similarity score data"
+"0","# Load the csv file into R as a dataset named df.data"
+"0","df.data <- read.csv(""/Users/irmakergin/Desktop/df_raw_similarity.csv"")"
+"0",""

@@ -1,0 +1,2 @@
+"0","# calculate the summary duration and add it as a new column"
+"0","df.raw$summary_duration <- as.numeric(df.raw$summary_stop) - as.numeric(df.raw$summary_start)"

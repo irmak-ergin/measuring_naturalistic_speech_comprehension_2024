@@ -1,0 +1,2 @@
+"0","# Load the dataset created after calculating the semantic similarity scores"
+"0","df.data <- read.csv(file.path(organized_data_path, ""organized_data_semantic.csv""))"

@@ -1,0 +1,8 @@
+"0",""
+"0","# median duration for each speech rate across participants"
+"0",""
+"0","median_summary_duration_all <- df.raw %>%"
+"0","  group_by(speech_rate) %>%"
+"0","  summarize(median_duration = median(summary_duration, na.rm = TRUE), .groups = 'drop')"
+"0",""
+"0","print(median_summary_duration_all)"

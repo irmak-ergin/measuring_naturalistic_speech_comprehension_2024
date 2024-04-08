@@ -1,0 +1,7 @@
+"0","# save the data and calculate semantic similarity score "
+"0",""
+"0","# Convert list to string for slider values"
+"0","df.raw$slider_values <- sapply(df.raw$slider_values, "
+"0","                                      function(x) paste(x, collapse = "",""))"
+"0",""
+"0","write.csv(df.raw, file = ""/Users/irmakergin/Desktop/df_raw.csv"", row.names = FALSE)"

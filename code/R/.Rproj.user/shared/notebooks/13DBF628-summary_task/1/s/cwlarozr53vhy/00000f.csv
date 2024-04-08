@@ -1,0 +1,3 @@
+"0","# Sanity check: create a column showing number of slider values"
+"0","df.raw <- df.raw %>%"
+"0","  mutate(slider_values_number = lengths(slider_values_rescaled))"

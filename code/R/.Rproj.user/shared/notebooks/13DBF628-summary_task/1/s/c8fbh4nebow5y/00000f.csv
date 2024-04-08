@@ -1,0 +1,7 @@
+"0","# Set path and participant ids"
+"0",""
+"0","# Change the folder path to final-project-irmak-ergin/data relative to your wd"
+"0","folder_path <- '/Users/irmakergin/Desktop/final-project-irmak-ergin/data_sum'"
+"0",""
+"0","# Define the list of participant IDs"
+"0","participant_ids <- c(""p_1"", ""p_2"",""p_3"")"
