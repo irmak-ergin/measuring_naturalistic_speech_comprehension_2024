@@ -10,10 +10,6 @@ output: pdf_document # use this to render to pdf
 
 ---
 
-*Instructions*
-
-The project proposal is due on __Thursday, February 22nd at 8pm__. It should not be longer than __700 words__. It may contain code (code doesn't count toward the word limit). 
-
 # Research question (3 pt)
 
 ## What is your main research question? (1 pt)
