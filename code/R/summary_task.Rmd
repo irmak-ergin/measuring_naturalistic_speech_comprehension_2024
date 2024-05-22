@@ -105,13 +105,13 @@ destination_folder<-"/Users/irmakergin/Desktop/final-project-irmak-ergin/organiz
 excel_files <- dir_ls(path = source_folder, glob = "*.xlsx")
 
 # Copy each Excel file to the destination folder- commented out to re-run
-for (file_path in excel_files) {
-dest_file_path <- file.path(destination_folder, path_file(file_path))
-file_copy(file_path, dest_file_path)
+#for (file_path in excel_files) {
+#dest_file_path <- file.path(destination_folder, path_file(file_path))
+#file_copy(file_path, dest_file_path)
 #   
- Check
-cat("Copied:", file_path, "to", dest_file_path, "\n")
-}
+ #Check
+#cat("Copied:", file_path, "to", dest_file_path, "\n")
+#}
 
 # Loop through each participant ID
 for (part_id in participant_ids) {
@@ -189,10 +189,9 @@ for (part_id in participant_ids) {
 df.raw<- df.raw %>%
   mutate(speech_rate = case_when(
     str_detect(wav_file, "2x") ~ 2,
-    str_detect(wav_file, "2-5x") ~ 2.5,
     str_detect(wav_file, "3x") ~ 3,
-    str_detect(wav_file, "3-5x") ~ 3.5,
     str_detect(wav_file, "4x") ~ 4,
+    str_detect(wav_file, "5x") ~ 5,
     TRUE ~ 1  # not sped up if there are no numbers + x in the name 
   ))
 ```
@@ -296,7 +295,6 @@ df.raw$slider_values <- mapply(get_slider_values,
 
 ```{r}
 # correct for slider value= participant id
-# CHANGE PATHS AND NAMES 
 
 participant_name <- "p_1" 
 wav_file_name <- "Someday_1_condition-2x.wav"
@@ -492,6 +490,7 @@ ggplot(avg_duration_per_speech_rate, aes(x = speech_rate, y = average_summary_du
   
 
 ```
+
 ```{r}
 # Create the faceted line plot of summary time for each participant and speech rate
 
