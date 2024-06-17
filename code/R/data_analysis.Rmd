@@ -914,9 +914,6 @@ df.data <- df.data %>%
 
 ```
 
-```{r}
-# CHECK IF MEAN AND MEDIAN CALCULATIONS ARE CORRECT
-```
 
 # Analysis
 
@@ -936,6 +933,12 @@ summary(model_likert)
 ```
 For the random effects, the variance and standard deviation for the digit span score were 0.00 and 0.03, respectively. The hearing-in-noise score did not contribute significantly to the variance (variance = 0.00, SD = 0.00). The residual variance was 0.03 (SD = 0.19). The post-hoc comrehension rating significantly predicted the trial median real-time comrehension ratings (B = 0.10, SE = 0.002, t = 56.85, p < .001).
 
+```{r}
+ plot<- df.data %>%
+  ggplot(aes(likert_response,trial_median_rescaled )) + geom_point() + theme_bw() +
+  geom_smooth(method="lm", alpha=0.5, color='violet', size=1)
+plot
+```
 
 ### Multiple Choice Quesitons
 ```{r}
@@ -970,6 +973,10 @@ ggplot(average_scores, aes(x = factor(speech_rate), y = average_accuracy)) +
   geom_errorbar(aes(ymin = average_accuracy - se, ymax = average_accuracy + se), 
                 width = 0.25, position = position_dodge(width = 0.9)) 
 ```
+```{r}
+# 1 way anova to report difference accuracy vtw speech rates
+# regression too predicting s rate from multiple c accuracy 
+```
 
 
 ### Summary
@@ -982,6 +989,9 @@ model_glove1<- lmer(trial_median_rescaled ~
                 (1 | digit_in_noise_score), data = df.data)
 
 summary(model_glove1)
+```
+```{r}
+# plot the regression
 ```
 
 For the random effects, the variance and standard deviation for the digit span score were 0.02 and 0.12, respectively. The hearing-in-noise score did not contribute significantly to the variance (variance = 0.00, SD = 0.00). The sum of maximum cosine values of summary words calculated using GLoVe significantly predicted the real-time comprehension measure values (B = 0.03, SE = 0.002, t = 19.86, p < .001).
@@ -1199,6 +1209,12 @@ plot<- df.data %>%
   ggplot(aes(speech_rate, trial_median_rescaled)) + geom_point() + theme_bw() +
   geom_smooth(method="lm", alpha=0.5, color='violet', size=1)
 plot
+```
+
+```{r}
+# comapare sem siilarity as fixed effect models to see which one explains the model better
+# one good thing about glove is that it gives us a sense of which words explain better
+# binnin to show it is wkm related (?)
 ```
 
 Model comparison (anova) btw semantic similarty models?
