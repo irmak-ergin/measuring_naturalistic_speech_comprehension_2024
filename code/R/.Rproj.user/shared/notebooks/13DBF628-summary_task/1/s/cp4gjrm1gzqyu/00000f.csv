@@ -1,2 +1,3 @@
-"0","# calculate the summary duration and add it as a new column"
-"0","df.raw$summary_duration <- as.numeric(df.raw$summary_stop) - as.numeric(df.raw$summary_start)"
+version https://git-lfs.github.com/spec/v1
+oid sha256:d4b9a92398391e1e17aad3e9de30d95d2435871113d680d3d8a9bc4ad2c8331a
+size 166

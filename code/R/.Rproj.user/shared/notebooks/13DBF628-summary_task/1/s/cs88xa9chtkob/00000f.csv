@@ -1,13 +1,3 @@
-"0","# plot sem similarity per speech rate"
-"0","average_similarity <- df.data %>%"
-"0","  group_by(speech_rate) %>%"
-"0","  summarise(average_similarity = mean(sum_max_similarity, na.rm = TRUE))"
-"0",""
-"0","# Plot with bars in light green"
-"0","ggplot(average_similarity, aes(x = factor(speech_rate), y = average_similarity, fill = as.factor(speech_rate))) +"
-"0","  geom_bar(stat = ""identity"", position = ""dodge"", fill = ""darkseagreen1"") + "
-"0","  labs(x = ""Speech Rate"", y = ""Average Sum Max Similarity"", "
-"0","       title = ""Average Sum Max Similarity by Speech Rate"") +"
-"0","  geom_text(aes(label = round(average_similarity, 2)), "
-"0","            vjust = -0.3, position = position_dodge(width = 0.9), size = 3) +"
-"0","  theme(legend.position = ""none"")"
+version https://git-lfs.github.com/spec/v1
+oid sha256:70039514409a5e66624dae3f37bd23bfce4ca29903afff7f05699f80bf6b22e3
+size 780

@@ -1,10 +1,3 @@
-"0","# total time spent on writing"
-"0",""
-"0","# Summarize total duration in minutes for each participant"
-"0","total_duration_per_participant <- df.raw %>%"
-"0","  group_by(participant) %>%"
-"0","  summarise(total_duration_minutes = sum(summary_duration, na.rm = TRUE) / 60) %>%"
-"0","  ungroup()"
-"0",""
-"0","# Print the total duration in minutes for each participant"
-"0","total_duration_per_participant"
+version https://git-lfs.github.com/spec/v1
+oid sha256:5b68b785228d8fbb2b4a678d6d1016a5c2e76a473b40502e5e3681471cb30a41
+size 409

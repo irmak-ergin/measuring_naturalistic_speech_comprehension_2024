@@ -1,15 +1,3 @@
-"0","# Sanity check for slider values "
-"0",""
-"0","rows_not_fitting_criteria_selected_columns <- df.raw %>%"
-"0","  filter("
-"0","    (speech_rate == 1 & (slider_values_number < 6000 | slider_values_number > 8000)) |"
-"0","    (speech_rate == 2 & (slider_values_number < 3000 | slider_values_number > 4000)) |"
-"0","    (speech_rate == 2.5 & (slider_values_number < 3000 | slider_values_number > 3500)) |"
-"0","    (speech_rate == 3 & (slider_values_number < 2500 | slider_values_number > 3000)) |"
-"0","    (speech_rate == 3.5 & (slider_values_number < 2000 | slider_values_number > 2500)) |"
-"0","    (speech_rate == 4 & (slider_values_number < 1500 | slider_values_number > 2000))"
-"0","  ) %>%"
-"0","  select(participant, wav_file, index, slider_values_number)"
-"0",""
-"0","# To print the resulting selected columns for rows that do not fit the criteria"
-"0","print(rows_not_fitting_criteria_selected_columns)"
+version https://git-lfs.github.com/spec/v1
+oid sha256:cc1a8c696dda14a2284d12350d0cd9381edb01733c6ce46bdd998f8c8c3a98b0
+size 916

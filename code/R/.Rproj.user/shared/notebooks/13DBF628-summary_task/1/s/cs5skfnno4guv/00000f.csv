@@ -1,16 +1,3 @@
-"0","#sanity check per speech rate"
-"0","# Directly create the unique identifier for each speech_rate"
-"0","df.group <- df.raw %>%"
-"0","  mutate(group_id = speech_rate)%>%"
-"0","  select(group_id, summary_duration)"
-"0",""
-"0","# Now split the dataframe into a list of dataframes based on the group_id"
-"0","list_of_dfs <- split(df.group, f = df.group$group_id)"
-"0",""
-"0","# Iterate over each dataframe in the list to add the summary_median column"
-"0","list_of_dfs_with_median <- lapply(list_of_dfs, function(df) {"
-"0","  median_value <- median(df$summary_duration, na.rm = TRUE)  # Calculate the median of summary_duration"
-"0","  df$summary_median <- median_value  # Add the median as a new column"
-"0","  return(df)"
-"0","})"
-"0",""
+version https://git-lfs.github.com/spec/v1
+oid sha256:878b6191ac2f4bca07d89322be46df4d64d7fb829a003c77082ba2f9cbb2888a
+size 741

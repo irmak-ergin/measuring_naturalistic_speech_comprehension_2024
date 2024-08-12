@@ -1,9 +1,3 @@
-"0","# median duration for each speech rate per participant"
-"0",""
-"0","# Group the data by participant and speech rate, then calculate the median summary duration"
-"0","median_summary_duration <- df.raw %>%"
-"0","  group_by(participant, speech_rate) %>%"
-"0","  summarize(median_duration = median(summary_duration, na.rm = TRUE), .groups = 'drop')"
-"0",""
-"0","# Check the resulting data frame to make sure it looks correct"
-"0","print(median_summary_duration)"
+version https://git-lfs.github.com/spec/v1
+oid sha256:cef14e7ec64118c9de01f0d764665d26956196e601aca9b7ff9fec459d673469
+size 464

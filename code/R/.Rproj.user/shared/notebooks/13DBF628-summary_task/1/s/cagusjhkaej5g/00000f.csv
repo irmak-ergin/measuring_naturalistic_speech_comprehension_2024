@@ -1,7 +1,3 @@
-"0","# save the data and calculate semantic similarity score "
-"0",""
-"0","# Convert list to string for slider values"
-"0","df.raw$slider_values <- sapply(df.raw$slider_values, "
-"0","                                      function(x) paste(x, collapse = "",""))"
-"0",""
-"0","write.csv(df.raw, file = ""/Users/irmakergin/Desktop/df_raw.csv"", row.names = FALSE)"
+version https://git-lfs.github.com/spec/v1
+oid sha256:579f7ab9d26187da09ab3bd9a3c2d97f64b3d42799f9303fcaeee51d2d359b36
+size 362

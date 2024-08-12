@@ -1,3 +1,3 @@
-"0","# Sanity check: create a column showing number of slider values"
-"0","df.raw <- df.raw %>%"
-"0","  mutate(slider_values_number = lengths(slider_values_rescaled))"
+version https://git-lfs.github.com/spec/v1
+oid sha256:da2f1e8f9038f2ba8cc653e34237546772166dad8faeb83ed13f4902b842b632
+size 168

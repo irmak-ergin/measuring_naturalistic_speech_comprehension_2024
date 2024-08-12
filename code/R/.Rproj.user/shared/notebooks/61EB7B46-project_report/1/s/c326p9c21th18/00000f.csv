@@ -1,2 +1,3 @@
-"0","# Load the dataset created after calculating the semantic similarity scores"
-"0","df.data <- read.csv(file.path(organized_data_path, ""organized_data_semantic.csv""))"
+version https://git-lfs.github.com/spec/v1
+oid sha256:db6de3302112b9ca6f6dfb664b0ac824fa393e08be0fc86c5a0a5308600cbeba
+size 173

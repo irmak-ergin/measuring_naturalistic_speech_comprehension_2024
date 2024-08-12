@@ -650,6 +650,7 @@ ggplot(average_similarity, aes(x = factor(speech_rate), y = average_similarity, 
             vjust = -0.3, position = position_dodge(width = 0.9), size = 3) +
   theme(legend.position = "none")
 ```
+
 ```{r}
 # plot sem similarity per speech rate per participant
 average_similarity <- df.data %>%
@@ -693,6 +694,7 @@ ggplot(aggregated_data, aes(x = as.factor(speech_rate), y = avg_word_count,
        fill = "Speech Rate") +
   theme(legend.position = "none")
 ```
+
 ```{r}
 # number of words for each speech rate per participant
 

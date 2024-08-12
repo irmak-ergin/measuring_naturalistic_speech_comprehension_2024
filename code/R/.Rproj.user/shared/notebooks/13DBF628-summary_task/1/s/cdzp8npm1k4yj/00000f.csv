@@ -1,4 +1,3 @@
-"0","# load the sem similarity score data"
-"0","# Load the csv file into R as a dataset named df.data"
-"0","df.data <- read.csv(""/Users/irmakergin/Desktop/df_raw_similarity.csv"")"
-"0",""
+version https://git-lfs.github.com/spec/v1
+oid sha256:d4fa6eb1d048aedf60f14210bf3dd187ef98ed8e2758d5a23f7cb9ecc976a9ce
+size 189

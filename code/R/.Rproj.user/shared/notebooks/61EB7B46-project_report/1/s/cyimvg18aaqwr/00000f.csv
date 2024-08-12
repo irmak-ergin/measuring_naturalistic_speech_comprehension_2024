@@ -1,15 +1,3 @@
-"0","# Rescale slider values to be between 0-1"
-"0",""
-"0","# Convert slider_values from string to numeric lists "
-"0","df.raw.merged$slider_values <- strsplit(as.character(df.raw.merged$slider_values), "
-"0","                                        "",\\s*"")"
-"0","df.raw.merged$slider_values <- lapply(df.raw.merged$slider_values, "
-"0","                                      function(x) as.numeric(x))"
-"0",""
-"0","rescale_values <- function(values) {"
-"0","  sapply(values, function(x) x / 255)"
-"0","}"
-"0",""
-"0","# Apply the rescaling function to each row's slider_values"
-"0","df.raw.merged$slider_values_rescaled <- lapply(df.raw.merged$slider_values, "
-"0","                                               rescale_values)"
+version https://git-lfs.github.com/spec/v1
+oid sha256:f0c189679a2be600bcecee1d1cfe7ac6bd70f29aed99a167c6c3b7c7bebdf069
+size 733

@@ -1,4 +1,3 @@
-"0","# Rescale post-hoc the likert scale values that are between 1-10 to 0-1"
-"0",""
-"0","df.raw.merged$likert_response <- (df.raw.merged$likert_response - 1) / 9"
-"0",""
+version https://git-lfs.github.com/spec/v1
+oid sha256:8800404b494f00e70e958d3dea8dbde9510f294e55a8a25b80f7b73b37497cf2
+size 171
