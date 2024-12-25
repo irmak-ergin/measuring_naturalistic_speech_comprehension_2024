@@ -1,73 +1,55 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-24ddc0f5d75046c5622901739e7c5dd533143b0c8e959d652212380cedb1ea36.svg)](https://classroom.github.com/a/twW5Gcpf)
-# Final project
+# Measuring Naturalistic Speech Comprehension in Real Time
 
-Starter code for your final project.
-
-## General points
-
-- for folder and file names: 
-	+ don't use white space in either folder or filenames, use an underscore "_" instead
-	+ (almost always) use lower case only
-- always use relative paths in your code
-	+ for example, to save a figure from an R script inside the `code/R/` folder the path should be "../../figures/figure_name.pdf"
-- keep your folder structure organized
-	+ we recommend adhering to the folder structure in this repository 
-	+ more complex projects may have additional folders such as `videos/`, `papers/`, ...
-- note: some of the folders are empty except for a `.keep` file
-	+ the `.keep` file is just there to make sure that github includes the otherwise empty folder 
-	+ feel free to delete the `.keep` file once you've added another file to that folder
+Project aiming to develop and validate a novel, time-resolved behavuoral measure to capture moment-by-moment fluctuations in comprehension during continuous natural listening.
 
 ## Repository structure 
 
 ```
-├── code
-│   └── R
+├── analysis
 ├── data
-├── figures
-├── papers
-├── presentation
-└── writeup
-    ├── final_report
-    └── proposal
+    └── raw_data
+    └── organized_data
+    └── organized_data_no_typo.csv
+├── experiment_files
+├── writeup
+    └── figures
+    └── preprint.pdf
+    └── preregistration.pdf
 ```
 
-### code 
+### Analysis & Data
 
-Put all your code here. If you are using another programming language for some of your coding, add a separate folder here for that language. For example, you could add a `python/` folder for any python scripts that you're using. 
+The /analysis directory contains all code used for analysis and generating the figures. *data_analysis.Rmd* file contains code to wrangle the raw data, and main analysis. *.ipynb* files mainly contain semantic similarity analysis, data visualization, and explanatory data analysis. 
 
-#### R 
+#### Data processing & analysis steps 
 
-Make sure to put all the RMarkdown scripts and your RProject file into this folder. It already contains a RMarkdown template for the project proposal, and for the project report.
+##### Data wrangling
 
-### data 
+**1. *data_analysis.Rmd* - Data Wrangling:** Takes the raw data files under data/raw_data and organizes them into participant folders. These folders are saved in data/organized_data and the organized data frame containing all participants' data is saved in data/organized_data/organized_data.csv. data/organized_data/organized_data_fail.csv contains the data of participants who failed the exclusion criteria. 
 
-Put your raw data file here. Any data wrangling to that file should happen in your RMarkdown script. Feel free to remove the `poker.csv` data set in this folder. 
+**2. *correct_typos.ipynb*:** Takes the organized_data.csv and corrects the typos in participants' summaries. We also checked each summary and corrected the manually where necesssary. The output dataframe is saved in data/organized_data/organized_data_no_typo.csv.
 
-### figures 
+**3. *semantic_similarity.ipynb*:** Takes the organized_data_no_typo.csv dataframe and calculates the semantic similarity between the summaries participants wrote and the segments they have heard for each trial. The output dataframe is saved in data/organized_data/semantic_similarity.csv. 
 
-Save all your figures here. You may want to include additional subfolder here such as `plots/`, `diagrams/` etc. Feel free to remove the `example_figure.pdf` in that folder. 
+##### Data Analysis
 
-### papers 
+**4. *data_analysis.Rmd* - Analysis:** Takes semantic_similarity.csv dataframe and conducts the main analysis. This includes all analysis regarding semantic similarity and validating our novel measure. 
 
-Put research papers here that are relevant for your project. 
+**5. *linear_vs_categorical.ipynb*:** Explanatory analysis investigating nature of the decline in comprehension with increasing speech speed.
 
-### presentation
+**6. *binned_real-time_comprehension.ipynb*:** Contains the explanatory analysis investigating whether the recency effect we oberved in summaries can be alternatively explained by genuinely better comprehension towards the end of audio segments. 
 
-Put your project presentation here (e.g. your keynote, powerpoint, google slides, or pdf file).
+**7. *visualise_slider_position.ipynb*:** Generate figures related to slider position (i.e, values reported throug the real-time comprehension measure) over time. 
 
-### writeup 
+### Experiment Files
 
-Put all your writing here. This folder structure is likely to expand for more complex projects. For example, you could add a subfolders like folders `journal/jpsp/submission/`, `journal/jpsp/resubmission/` etc. 
+*Experimental Paradigm*: Participants did the Digit Span and Digit In Noise tests before the main experiment. The experiment started with 2 training blocks, the first one with the slowest and the second one with the fastest speech speeds, before 125 experimental blocks. Each block started with a speech segment randomly presented in one of five speech speeds. Participants reported their real-time comprehension using the slider while listening to the segment. After listening, they completed the post-hoc comprehension tasks. The summary task was present only for 60% of the blocks.
 
-#### final_report 
+**.wav files** are the experimental stimuli that are the audiosegments participants heard. 
+**.xlsx files** for each partitipant contain the information about which segments participants will hear in which speed for each trial, whether there will be a summary for each trial, and the multiple choice questions.
+**v2.py** integrates slider (through which participants report the real-time comprehesion) and reads the output. 
+**experiment.psyexp** contains the psychopy experiment. For each participant, corresponding participant .xlsx input file should be put under the loop named ‘experiment’ -> conditions -> file name
 
-The pdf of your final report should go here. 
+### Writeup 
 
-#### proposal 
-
-The pdf of your project proposal should go here. 
-
-
-
-
-
+Contains all **figures** used in the the manuscript, **preregistration**, and the **preprint**. 
