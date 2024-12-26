@@ -9,7 +9,6 @@ Project aiming to develop and validate a novel, time-resolved behavuoral measure
 ├── data
     └── raw_data
     └── organized_data
-    └── organized_data_no_typo.csv
 ├── experiment_files
 ├── writeup
     └── figures
