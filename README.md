@@ -1,6 +1,6 @@
 # Measuring Naturalistic Speech Comprehension in Real Time
 
-Project aiming to develop and validate a novel, time-resolved behavuoral measure to capture moment-by-moment fluctuations in comprehension during continuous natural listening.
+Project aiming to develop and validate a novel, time-resolved behavioral measure to capture moment-by-moment fluctuations in comprehension during continuous natural listening.
 
 ## Repository structure 
 
