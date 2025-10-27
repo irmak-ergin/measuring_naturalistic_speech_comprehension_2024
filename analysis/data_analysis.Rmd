@@ -7,7 +7,9 @@ output: html_document
 
 ```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
 # Load libraries
-
+library(stringi)
+library(lme4)
+library(MuMIn)
 library(stringr)
 library(fs)
 library(readxl)
@@ -42,7 +44,7 @@ library(broom)
 library(dplyr)
 library(ggplot2)
 library(rsample)
-
+library(corrplot)
 
 # set the default ggplot theme 
 theme_set(theme_classic())
@@ -470,7 +472,7 @@ if(nrow(failed_participants) > 0) {
 # Histogram with all participants accuracies for speech rate 1
 p_mult <- ggplot(accuracy_results, aes(x = accuracy)) +
   geom_histogram(binwidth = 0.04, fill = "violetred", alpha = 0.7, color = "black") + 
-  labs(title = "All Participants' Multiple Choice Question Accuracy for Speech Speed x1",
+  labs(title = "All Participants' Multiple Choice Question Accuracy for Speech Rate x1",
        x = "Accuracy",
        y = "Number of Participants")
 
@@ -488,6 +490,7 @@ p_mult +
         axis.text = element_text(size = 12))  
 
 ```
+
 ### 2. Ratings on the 10-point scale 
 They should be significantly different for the slowest and fastest speech rates.
 
@@ -644,6 +647,35 @@ df.data <- df.data %>%
 ```
 
 ## I. Semantic Similarity
+### Average word cound per second for each speech rate
+```{r}
+# per-trial word counts and words/min
+df_wpm <- df.data %>%
+  mutate(
+    text_chr   = as.character(segment_text),
+    word_count = if_else(
+      is.na(text_chr) | stri_trim_both(text_chr) == "",
+      0L,
+      lengths(stri_extract_all_words(text_chr))
+    ),
+    wpm = if_else(duration > 0, 60 * word_count / duration, NA_real_)  # words per minute
+  )
+
+# summaries by speech_rate (both unweighted and duration-weighted)
+wpm_by_rate <- df_wpm %>%
+  group_by(speech_rate) %>%
+  summarise(
+    mean_wpm_unweighted = mean(wpm, na.rm = TRUE),
+    sd_wpm_unweighted   = sd(wpm,   na.rm = TRUE),
+    mean_wpm_weighted   = 60 * sum(word_count, na.rm = TRUE) / sum(duration, na.rm = TRUE),
+    n_trials            = sum(!is.na(wpm)),
+    .groups = "drop"
+  ) %>%
+  mutate(across(c(mean_wpm_unweighted, sd_wpm_unweighted, mean_wpm_weighted), ~ round(., 2)))
+
+wpm_by_rate
+```
+
 Which semantic similarity analysis explains comprehension better?
 
 ### Visualization
@@ -733,7 +765,7 @@ grid.arrange(
     ncol = 3,
     left = textGrob("Average Normalized Cosine Similarity Value", 
                     rot = 90, vjust = 0.5),
-   bottom = textGrob("Speech Speed", 
+   bottom = textGrob("Speech Rate", 
                     rot = 0, vjust = 0.5)
   ) 
 )
@@ -791,7 +823,7 @@ summary(model_all)
 ```
 All fixed effects (different sem similarity scores) are significant, they are finding independent variance, interestingly. Glove- Written Summary has the highest t value and estimate. Therefore, I will use/ report the GLoVe- written summary Segment for the rest of the analyses.   
 
-### Speech Speed 
+### Speech Rate 
 Are semantic similarity scores btw speech rates sig different from each other?
 
 #### Glove- Written Summary
@@ -947,10 +979,69 @@ df.bin_bert_factor %>% pairwise_t_test(
     )
 ```
 
-There is a main effect of speech speed for all 3, main effect of binning (recency) only for GloVe- Heard Summary & BERT.
+There is a main effect of Speech Rate for all 3, main effect of binning (recency) only for GloVe- Heard Summary & BERT.
 
 ## II. Validation
 Can we predict the scores of our novel comprehension measure from the existing post-hoc comprehension measures?
+
+### Correlation between comprehension measures
+
+```{r}
+vars <- c("trial_median_rescaled",
+          "glove_sum_max_similarity_rescaled",
+          "likert_rescaled",
+          "multiple_choice_accuracy")
+
+# <-- rename map to match your visreg wording
+labs <- c(
+  trial_median_rescaled              = "Real-Time Comprehension",
+  glove_sum_max_similarity_rescaled  = "Semantic Similarity",
+  likert_rescaled                    = "10-Point Scale",
+  multiple_choice_accuracy           = "Multiple Choice"
+)
+
+X <- df.data[, vars]
+rc_p <- rcorr(as.matrix(X), type = "pearson")
+
+# apply pretty labels to matrices
+R <- rc_p$r; P <- rc_p$P
+dimnames(R) <- lapply(dimnames(R), function(nm) unname(labs[nm]))
+dimnames(P) <- lapply(dimnames(P), function(nm) unname(labs[nm]))
+
+# tidy pairwise table with pretty names
+pairs_tbl <- (\(R, P) {
+  nm <- colnames(R)
+  out <- do.call(rbind, lapply(1:(ncol(R)-1), function(i)
+    do.call(rbind, lapply((i+1):ncol(R), function(j)
+      data.frame(var1 = nm[i], var2 = nm[j], r = R[i,j], p = P[i,j])
+    ))
+  ))
+  out[order(abs(out$r), decreasing = TRUE), ]
+})(R, P) %>%
+  mutate(r = round(r, 2),
+         p = signif(p,4))
+pairs_tbl
+```
+
+```{r}
+
+# palette: purple (-1) → white (0) → green (+1)
+pal_pg <- colorRampPalette(c("#6A00A8", "#F7F7F7", "#10B981"))(200)
+
+corrplot(R,
+         method    = "circle",
+         type      = "upper",
+         col       = pal_pg,
+         tl.col    = "black",
+         tl.srt    = 45,
+         cl.lim    = c(-1, 1),
+         p.mat     = P,
+         sig.level = c(0.001, 0.01, 0.05),
+         insig     = "label_sig",   # prints ***, **, *
+         pch.cex   = 1.2,
+         pch.col   = "black")
+```
+
 
 ### Each measure as a fixed effect in seperate models
 
@@ -981,7 +1072,7 @@ average_score_likert <- df.data %>%
 likert_plot <- ggplot(average_score_likert, aes(x = factor(speech_rate), 
                                                 y = average_likert)) +
   geom_bar(stat = "identity", width = 0.7, fill = "royalblue") +   
-  labs(x = "Speech Speed", y = "10-Point Scale Response") +
+  labs(x = "Speech Rate", y = "10-Point Scale Response") +
   geom_text(aes(label = round(average_likert, 2)), vjust = -0.2, size = 6) +
   scale_x_discrete(labels = function(x) paste0("x ", x)) +
   geom_errorbar(aes(ymin = average_likert - se, ymax = average_likert + se), 
@@ -993,7 +1084,41 @@ likert_plot <- ggplot(average_score_likert, aes(x = factor(speech_rate),
         axis.text.y = element_text(size = 20))  
 
 print(likert_plot)
+
+
 ```
+##### variance explained by the fixed effect (partial r2)
+The proportion of variance explain uniquely by the predictor relative to total
+variance
+```{r}
+res_likert <- partR2(model_likert, 
+              partvars = "likert_rescaled", 
+              data = df.data, 
+              R2_type = "marginal")
+res_likert
+
+res_likert_round <- as.data.frame(res_likert$R2) %>%
+  mutate(across(where(is.numeric), ~ round(., 2)))
+res_likert_round
+
+```
+Cohen's f2
+```{r}
+r2   <- r.squaredGLMM(model_likert)
+R2_m <- as.numeric(r2[1])
+
+# Cohen's f^2 for a single fixed effect
+f2 <- if (is.finite(R2_m) && R2_m < 1) R2_m / (1 - R2_m) else NA_real_
+
+# Partial R^2 equals Marginal R^2 when there's only one fixed effect
+PR2_likert <- R2_m
+
+# Pretty print (2 decimals)
+cat(sprintf("Marginal R^2 (fixed effects): %.2f\n", R2_m))
+cat(sprintf("Cohen's f^2: %.2f\n", f2))
+cat(sprintf("Partial R^2 for likert_rescaled: %.2f\n", PR2_likert))
+```
+
 
 #### Multiple Choice Quesitons
 ```{r}
@@ -1005,7 +1130,7 @@ model_multiple_choice<- lmer(trial_median_rescaled ~
 summary(model_multiple_choice)
 ```
 
-##### Visualize Multiple Choice Quesitons per Speech Speed
+##### Visualize Multiple Choice Quesitons per Speech Rate
 ```{r figure-size, fig.width=6, fig.height=6 }
 # Calculate the average multiple_choice_accuracy scores per speech_rate category
 average_scores <- df.data %>%
@@ -1018,7 +1143,7 @@ average_scores <- df.data %>%
 
 question_plot <- ggplot(average_scores, aes(x = factor(speech_rate), y = average_accuracy)) +
   geom_bar(stat = "identity", width = 0.7, fill = "violetred") +   
-  labs(x = "Speech Speed", y = "Multiple Choice Accuracy") +
+  labs(x = "Speech Rate", y = "Multiple Choice Accuracy") +
   geom_text(aes(label = round(average_accuracy, 2)), vjust = -0.5, size = 6) +
   scale_x_discrete(labels = function(x) paste0("x ", x)) +
   geom_errorbar(aes(ymin = average_accuracy - se, ymax = average_accuracy + se), 
@@ -1034,6 +1159,52 @@ question_plot <- ggplot(average_scores, aes(x = factor(speech_rate), y = average
 print(question_plot)
 ```
 
+##### variance explained by the fixed effect (partial r2)
+The proportion of variance explain uniquely by the predictor relative to total
+variance
+```{r}
+res_mcq <- partR2(model_multiple_choice, 
+              partvars = "multiple_choice_accuracy", 
+              data = df.data, 
+              R2_type = "marginal")
+res_mcq
+res_mcq_round <- as.data.frame(res_mcq$R2) %>%
+  mutate(across(where(is.numeric), ~ round(., 2)))
+res_mcq_round
+```
+Cohen's f2
+```{r}
+## 1) Marginal R^2 (fixed effects) + Cohen's f^2
+r2 <- r.squaredGLMM(model_multiple_choice)
+R2_m <- as.numeric(r2[1])                # marginal R^2
+f2   <- R2_m / (1 - R2_m)                # Cohen's f^2
+
+## 2) Partial R^2 for the single fixed effect (equals marginal R^2)
+PR2_mcq <- R2_m
+
+## 3) Standardized beta (ΔSD_y per 1 SD_x)
+df.data$y_z <- scale(df.data$trial_median_rescaled)
+df.data$x_z <- scale(df.data$multiple_choice_accuracy)
+mod_std <- lmer(y_z ~ x_z +
+                  (1 | digit_span_score) +
+                  (1 | digit_in_noise_score),
+                data = df.data)
+beta_std <- fixef(mod_std)["x_z"]
+
+## 4) (Optional) Semi-standardized beta: SD(y) per 1 raw-unit of x
+mod_semistd <- lmer(y_z ~ multiple_choice_accuracy +
+                      (1 | digit_span_score) +
+                      (1 | digit_in_noise_score),
+                    data = df.data)
+beta_semistd <- fixef(mod_semistd)["multiple_choice_accuracy"]
+
+## Pretty print
+cat(sprintf(
+  "Marginal R^2: %.2f\nCohen's f^2: %.2f\nPartial R^2: %.2f",
+  R2_m, f2, PR2_mcq
+))
+```
+
 #### Summary
 ```{r}
 # Summary- GloVe- Written Summary
@@ -1045,14 +1216,14 @@ model_glove1<- lmer(trial_median_rescaled ~
 summary(model_glove1)
 ```
 
-##### Visualize Semantic Simlarity Scores of Summaries per Speech Speed
+##### Visualize Semantic Simlarity Scores of Summaries per Speech Rate
 ```{r figure-size, fig.width=6, fig.height=6}
 plot_glove_summary <- ggplot(average_similarity_summary, aes(x = factor(speech_rate), 
                                y = average_similarity, 
                                fill = as.factor(speech_rate))) +
   geom_bar(stat = "identity", position = "dodge", width = 0.7, fill = "green3") +
   scale_x_discrete(labels = function(x) paste0("x ", x)) +
-  labs(x = "Speech Speed", y= "Semantic Similarity\nScore") +
+  labs(x = "Speech Rate", y= "Semantic Similarity\nScore") +
   geom_text(aes(label = round(average_similarity, 2)), 
             vjust = -0.5, position = position_dodge(width = 0.7), size = 6) +
   geom_errorbar(aes(ymin = average_similarity - se, ymax = average_similarity + se), 
@@ -1065,6 +1236,45 @@ plot_glove_summary <- ggplot(average_similarity_summary, aes(x = factor(speech_r
         plot.title = element_text(size = 20, hjust = 0.5))
 
 plot_glove_summary
+```
+
+##### variance explained by the fixed effect (partial r2)
+The proportion of variance explain uniquely by the predictor relative to total
+variance
+```{r}
+res_sem <- partR2(model_glove1, 
+              partvars = "glove_sum_max_similarity_rescaled", 
+              data = df.data, 
+              R2_type = "marginal")
+res_sem
+res_sem_round <- as.data.frame(res_sem$R2) %>%
+  mutate(across(where(is.numeric), ~ round(., 2)))
+res_sem_round
+```
+Cohen's f2
+```{r}
+## 1) Marginal R^2 (fixed effects) + Cohen's f^2
+r2 <- r.squaredGLMM(model_glove1)
+R2_m <- as.numeric(r2[1])                # marginal R^2
+f2   <- R2_m / (1 - R2_m)                # Cohen's f^2
+
+## 2) Partial R^2 (same as marginal R^2 with one fixed effect)
+PR2_glove <- R2_m
+
+## 3) Standardized beta (ΔSD_y per 1 SD_x)
+df.data$y_glove_z <- scale(df.data$trial_median_rescaled)
+df.data$x_glove_z <- scale(df.data$glove_sum_max_similarity_rescaled)
+mod_std_glove <- lmer(y_glove_z ~ x_glove_z +
+                        (1 | digit_span_score) +
+                        (1 | digit_in_noise_score),
+                      data = df.data)
+
+##  print
+cat(sprintf(
+  "Marginal R^2: %.3f\nCohen's f^2: %.3f\nPartial R^2: %.3f",
+  R2_m, f2, PR2_glove
+))
+
 ```
 
 ### Visualize single fixed effect regression models
@@ -1218,6 +1428,72 @@ grid.arrange(
 )
 ```
 
+
+0.00##### variance explained
+```{r}
+cohens_f2_lmer <- function(mod, digits = 3) {
+  stopifnot(inherits(mod, "lmerMod"))
+
+  # Use the exact rows the model used (avoid NA mismatches)
+  mf <- model.frame(mod, na.action = na.omit)
+  mod_clean <- lmer(formula(mod), data = mf, REML = lme4::isREML(mod))
+
+  # Pieces
+  resp         <- as.character(formula(mod_clean))[2]
+  fixed_terms  <- attr(terms(mod_clean), "term.labels")         # fixed-only labels
+  rand_terms   <- lme4::findbars(formula(mod_clean))            # random terms
+
+  # Keep random effects in all reduced models
+  rand_str <- if (length(rand_terms)) {
+    vapply(rand_terms, function(x) paste0("(", deparse(x), ")"), character(1))
+  } else character(0)
+
+  # Model-level R^2 (marginal for fixed effects)
+  r2_full_vec <- r.squaredGLMM(mod_clean)
+  r2_full_m   <- as.numeric(r2_full_vec[1])   # Marginal R^2 (fixed effects)
+  r2_full_c   <- as.numeric(r2_full_vec[2])   # Conditional R^2 (fixed + random), FYI
+
+  # Build reduced models dropping ONE fixed term at a time
+  rows <- lapply(fixed_terms, function(trm) {
+    keep_fixed <- setdiff(fixed_terms, trm)
+    fixed_rhs  <- if (length(keep_fixed)) paste(keep_fixed, collapse = " + ") else "1"
+    rhs        <- paste(c(fixed_rhs, rand_str), collapse = " + ")
+    f_reduced  <- as.formula(paste(resp, "~", rhs))
+
+    m_red   <- lmer(f_reduced, data = mf, REML = lme4::isREML(mod_clean))
+    r2_red  <- as.numeric(r.squaredGLMM(m_red)[1])             # marginal R^2 of reduced
+    dR2     <- r2_full_m - r2_red                              # unique/semi-partial R^2
+    f2      <- if (is.finite(r2_full_m) && r2_full_m < 1) dR2 / (1 - r2_full_m) else NA_real_
+
+    data.frame(
+      Predictor     = trm,
+      Marginal_R2   = r2_full_m,    # same for all rows (model-level)
+      Partial_R2    = dR2,          # unique/semi-partial R^2 for this predictor
+      R2_reduced    = r2_red,       # for transparency
+      Cohen_f2      = f2,
+      stringsAsFactors = FALSE
+    )
+  })
+
+  out <- bind_rows(rows) |>
+    arrange(desc(Partial_R2)) |>
+    mutate(across(c(Marginal_R2, Partial_R2, R2_reduced, Cohen_f2),
+                  ~ round(., digits)))
+
+  # (optional) attach conditional R^2 as an attribute for reference
+  attr(out, "R2_conditional_model") <- round(r2_full_c, digits)
+  out
+}
+
+# ----- Use it -----
+f2_tbl <- cohens_f2_lmer(model_all_glove1, digits = 3)
+f2_tbl
+# View the model Conditional R^2 (optional):
+attr(f2_tbl, "R2_conditional_model")
+
+# Cohen (1988) benchmarks: small ~0.02, medium ~0.15, large ~0.35
+```
+
 ## Figure: Single fixed-effect regressions + bar plots + multiple fixed-effect regression
 ```{r figure-size, fig.width=18, fig.height=22}
 # all 3 plots in the same grid
@@ -1261,8 +1537,9 @@ combined_plot_effects <- grid.arrange(
 print(combined_plot_effects)
 ```
 
-## Predicting real time comprehension from speech rate 
-Does comprehension change with speech speed?
+
+## Predicting speech rate from comprehension
+Does comprehension change with Speech Rate?
 
 ```{r}
 model_rate <- lmer(speech_rate ~ 
@@ -1276,7 +1553,7 @@ model_rate <- lmer(speech_rate ~
 summary(model_rate)
 ```
 
-### Figure: Estimates of fixed effects (comprehension measures) on speech speed
+### Figure: Estimates of fixed effects (comprehension measures) on Speech Rate
 ```{r}
 # Extract the fixed effects from the model (including confidence intervals)
 fixed_effects <- tidy(model_rate, effects = "fixed", conf.int = TRUE)
@@ -1335,4 +1612,75 @@ ggplot(fixed_effects, aes(y = term, x = estimate)) +  # Swapped axes
   guides(color = "none") 
 
 ```
+
+
+## III. Multiple Choice Questions Diagnosis
+Are questions comparable in difficulty?
+
+Take all stories presented at 1x. (divide by questions and average across participants for that item)
+```{r figure-size, fig.width=6, fig.height=6}
+
+pid <- "participant"  
+
+# 1) per-participant accuracy for each QUESTION at 1×
+by_pp_1x <- df.data %>%
+  filter(speech_rate == 1,
+         !is.na(question), !is.na(.data[[pid]]),
+         !is.na(multiple_choice_accuracy)) %>%
+  group_by(.data[[pid]], question) %>%
+  summarise(acc = mean(multiple_choice_accuracy, na.rm = TRUE), .groups = "drop")
+
+# 2) per-question mean accuracy + n participants
+q_summary_1x <- by_pp_1x %>%
+  group_by(question) %>%
+  summarise(
+    mean_acc       = mean(acc, na.rm = TRUE),
+    n_participants = n(),
+    .groups = "drop"
+  )
+
+# quick stats (optional)
+summary_1x <- q_summary_1x %>%
+  summarise(
+    n_questions = n(),
+    mean  = mean(mean_acc), median = median(mean_acc),
+    sd    = sd(mean_acc),   iqr    = IQR(mean_acc)
+  )
+print(round(summary_1x, 3))
+
+#  histogram 
+# counts of per-question means rounded to 2 decimals
+counts_2dp <- q_summary_1x %>%
+  mutate(mean_acc_2dp = round(mean_acc, 1)) %>%
+  count(mean_acc_2dp) %>%
+  arrange(mean_acc_2dp)
+
+ggplot(counts_2dp,
+       aes(x = factor(mean_acc_2dp, levels = sort(unique(mean_acc_2dp))), y = n)) +
+  scale_x_discrete(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0, NA))+
+  geom_col(width = 0.75, color = "white") +
+  labs(x = "Accuracy", y = "Number of questions", title = "") +
+  theme_classic(base_size = 20)
+
+tbl_1x <- df.data %>%
+  filter(speech_rate == 1,
+         !is.na(question), !is.na(.data[[pid]]),
+         !is.na(multiple_choice_accuracy)) %>%
+  # per-participant accuracy per question (in case of multiple trials)
+  group_by(.data[[pid]], question) %>%
+  summarise(acc = mean(multiple_choice_accuracy, na.rm = TRUE), .groups = "drop") %>%
+  # average across participants
+  group_by(question) %>%
+  summarise(
+    n_participants = n(),
+    mean_accuracy  = mean(acc, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(mean_accuracy = round(mean_accuracy, 2)) %>%   # 2 decimals
+  arrange(desc(mean_accuracy))
+
+tbl_1x
+```
+Distribution of per-question accuracy averaged across participants for speech rate x1
 
