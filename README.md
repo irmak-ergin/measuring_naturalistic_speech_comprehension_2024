@@ -15,7 +15,7 @@ The structure for each experiment is as follows:
     └── preprint.pdf
     └── preregistration.pdf
 ```
-Below are details about the repository. Experiment 2 and 3 follows the structure of Experiment 1.
+Below are details about the repository. Experiment 2 and 3 folders follow the structure of Experiment 1's.
 
 ## Experiment 1 
 
