@@ -64,7 +64,7 @@ Contains all **figures** used in the the manuscript, **preregistration**, and th
 
 *Experimental Paradigm*: Participants listened to two continuous 10 second segments in which the speech rate varied, speeding up from ×1 to ×5
 
-## Analysis & Data
+### Analysis & Data
 
 *exp2_data_analysis.Rmd* file contains code to wrangle the raw data, and main analysis. *.ipynb* file mainly data visualization for the slider responses. 
 
