@@ -58,7 +58,7 @@ Contains the data and further analysis on the participants excluded due to prere
 
 ### Writeup 
 
-Contains all **figures** used in the the manuscript, **preregistration**, and the **preprint**. 
+Contains all **figures** used in Experiment 1, **preregistration**, and the **preprint**. 
 
 ## Experiment 2
 
