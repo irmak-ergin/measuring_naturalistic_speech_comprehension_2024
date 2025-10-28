@@ -11182,7 +11182,6 @@ experiment_1/data/organized_data/digit_span_p_28.xlsx filter=lfs diff=lfs merge=
 experiment_1/data/organized_data/digit_span_p_12.xlsx filter=lfs diff=lfs merge=lfs -text
 experiment_1/data/organized_data/digit_span_p_1.xlsx filter=lfs diff=lfs merge=lfs -text
 experiment_1/data/.RDataTmp filter=lfs diff=lfs merge=lfs -text
-README.md filter=lfs diff=lfs merge=lfs -text
 experiment_3/.DS_Store filter=lfs diff=lfs merge=lfs -text
 experiment_3/analysis/exp3_data_analysis.Rmd filter=lfs diff=lfs merge=lfs -text
 experiment_3/analysis/.DS_Store filter=lfs diff=lfs merge=lfs -text
