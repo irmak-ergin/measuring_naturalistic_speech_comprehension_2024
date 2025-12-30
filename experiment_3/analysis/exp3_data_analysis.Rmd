@@ -1,0 +1,1189 @@
+---
+title: "Measuring Naturalistic Speech Comprehension in Real Time Exp 3"
+output: html_document
+
+---
+# DATA WRANGLING
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+# Load libraries
+
+library(stringr)
+library(fs)
+library(readxl)
+library(readr)
+library(simr)
+library(lmerTest)
+library(patchwork)
+library(RColorBrewer)
+library(cowplot)
+library(scales)
+library(gridExtra)
+library(PerformanceAnalytics)
+library(corrplot)
+library(Hmisc)
+library(GGally)
+library(visreg)
+library(broom.mixed)
+library(sjPlot)
+library(gridExtra)
+library(grid) 
+library(rempsyc)
+library(flextable)
+library(officer)
+library(ggsignif)
+library(MuMIn)
+library(rstatix)
+library(caret)
+library(modelr)
+library(tidyr)
+library(purrr)
+library(broom)
+library(dplyr)
+library(ggplot2)
+library(rsample)
+library(emmeans)
+library(readr)
+library(stringr)
+
+
+# set the default ggplot theme 
+theme_set(theme_classic())
+```
+
+```{r}
+# Set path and participant ids
+
+# Change the folder path to data folder relative to the wd
+folder_path <- '/Users/irmakergin/Desktop/experiment_3/data/raw_data'
+
+# Define the list of participant IDs
+participant_ids <- c("p_1","p_2","p_3","p_4","p_5","p_6","p_7","p_8","p_9",
+                     "p_10","p_11","p_12","p_13","p_14","p_15","p_16","p_17",
+                     "p_18","p_19","p_20","p_21","p_22","p_23","p_24","p_25",
+                     "p_26","p_27","p_28","p_29","p_30")
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Organize the data csv files
+
+# Get a list of all files in the folder
+files <- dir(folder_path, full.names = TRUE)
+
+# Set a path to save the organized files
+organized_data_path <- "/Users/irmakergin/Desktop/experiment_3/data/organized_data"
+
+# Find files by participant ID 
+for(part_id in participant_ids) {
+  
+  slider_pattern <- paste0("^slider_", part_id, "(?:[_\\.-]|$).*\\.csv$")
+  additional_csv_pattern <- paste0("^", part_id, "(?:[_\\.-]|$).*\\.csv$")
+
+  # Find slider files that match the pattern
+  slider_matched_files <- files[str_detect(basename(files), slider_pattern)]
+  
+  # Find data CSV files that match the pattern
+  additional_csv_matched_files <- files[str_detect(basename(files), additional_csv_pattern)]
+  
+  # Create a directory for the current participant on the organized data path
+  participant_folder <- file.path(organized_data_path, part_id)
+  if(!dir.exists(participant_folder)) {
+    dir.create(participant_folder, recursive = TRUE, showWarnings = TRUE)
+  }
+  
+  # Create a subdirectory for slider files within the participant folder
+  slider_folder <- file.path(participant_folder, paste0("slider_", part_id))
+  if(!dir.exists(slider_folder)) {
+    dir.create(slider_folder, recursive = TRUE, showWarnings = TRUE)
+  }
+  
+  # Move slider matched files to the slider subfolder
+  if(length(slider_matched_files) > 0) {
+    for(file in slider_matched_files) {
+      file_copy(file, file.path(slider_folder, basename(file)), overwrite = TRUE)
+    }
+  }
+  
+  # Move additional CSV matched files (experiment data) to the main participant folder 
+  # and rename the participant folders
+  if(length(additional_csv_matched_files) > 0) {
+    for(file in additional_csv_matched_files) {
+      new_name <- paste0(part_id, "_raw_data.csv")
+      file_copy(file, file.path(participant_folder, new_name), overwrite = TRUE)
+    }
+  }
+  
+  # Status check
+  if(length(slider_matched_files) > 0 || length(additional_csv_matched_files) > 0) {
+    cat("Files for participant ID '", part_id, 
+        "' have been organized successfully. Slider files in: ", slider_folder, 
+        ", other CSVs in: ", participant_folder, "\n")
+  } else {
+    cat("No files found for participant ID '", part_id, "'.\n")
+  }
+}
+
+# ERROR FROM HERE ON!!! BECASUE WE HAVE DIFFERENT VARIABLES
+
+# Helper: first non-missing (and non-empty for character)
+first_nonmissing <- function(x) {
+  if (is.character(x)) {
+    y <- x[!is.na(x) & x != ""]
+  } else {
+    y <- x[!is.na(x)]
+  }
+  if (length(y) == 0) return(NA)
+  y[1]
+}
+
+for (part_id in participant_ids) {
+  raw_data_path <- file.path(organized_data_path, part_id, paste0(part_id, "_raw_data.csv"))
+  if (!file.exists(raw_data_path)) {
+    message("Missing: ", raw_data_path)
+    next
+  }
+
+  # Read, drop Someday*, and keep only columns we need
+  df_base <- readr::read_csv(raw_data_path, show_col_types = FALSE) %>%
+    dplyr::filter(!wav_file %in% c("Someday_trial_condition.wav",
+                                   "Someday_trial_condition-5x.wav")) %>%
+    dplyr::mutate(index = dplyr::row_number()) %>%
+    dplyr::select(
+      .data = .,
+      index, participant, wav_file, slider,
+      tidyselect::starts_with("q1_"),
+      tidyselect::starts_with("q2_"),
+      tidyselect::starts_with("q3_"),
+      tidyselect::starts_with("q4_"),
+      tidyselect::starts_with("q5_")
+    )
+
+  # Collapse multiple rows per wav_file by taking first non-missing value per field
+  df_base <- df_base %>%
+    dplyr::group_by(wav_file) %>%
+    dplyr::summarise(
+      index       = first_nonmissing(index),
+      participant = first_nonmissing(participant),
+      slider      = first_nonmissing(slider),
+      dplyr::across(
+        tidyselect::matches("^q[1-5]_(text|correct|given|correct_bool)$"),
+        first_nonmissing
+      ),
+      .groups = "drop"
+    ) %>%
+    # sort by the first-appearance index and give it a tidy, gapless order
+    dplyr::arrange(index) %>%
+    dplyr::slice(-1) %>%                          # keep your original removal
+    dplyr::mutate(
+      trial_order = dplyr::row_number()           # <-- stable story order for this participant
+    )
+
+  # Derive story_name and speech_rate (keep trial_order)
+  df_base <- df_base %>%
+    dplyr::mutate(
+      story_name = wav_file |>
+        stringr::str_remove("_story_noise\\.wav$") |>
+        stringr::str_remove("_noise\\.wav$"),
+      speech_rate = dplyr::if_else(stringr::str_detect(story_name, "_sped$"), 2.5, 1)
+    )
+
+  # Reshape Q1–Q5 into tidy rows; keep trial_order and sort by it
+  df_out <- df_base %>%
+    tidyr::pivot_longer(
+      cols = tidyselect::matches("^q[1-5]_(text|correct|given|correct_bool)$"),
+      names_to = c("question_number", "field"),
+      names_pattern = "^q([1-5])_(text|correct|given|correct_bool)$",
+      values_to = "value",
+      values_transform = list(value = as.character)
+    ) %>%
+    dplyr::mutate(question_number = as.integer(question_number)) %>%
+    tidyr::pivot_wider(names_from = field, values_from = value) %>%
+    dplyr::mutate(
+      correct_bool = dplyr::case_when(
+        correct_bool %in% c("TRUE","True","1")   ~ TRUE,
+        correct_bool %in% c("FALSE","False","0") ~ FALSE,
+        TRUE ~ NA
+      )
+    ) %>%
+    dplyr::rename(
+      question = text,
+      C_correct = correct,
+      C_given = given,
+      `multiple_choice accuracy` = correct_bool
+    ) %>%
+    # sort by trial_order to preserve original presentation order
+    dplyr::arrange(trial_order, question_number) %>%
+    # write columns 
+    dplyr::select(
+      participant, trial_order, story_name, slider, speech_rate,
+      question_number, question, C_correct, C_given, `multiple_choice accuracy`
+    )
+
+  
+  assign(paste0("df.raw.merged_", part_id), df_out, envir = .GlobalEnv)
+  readr::write_csv(df_out, raw_data_path)
+
+  cat("Updated (kept old name, preserved order): ", raw_data_path, "\n", sep = "")
+}
+```
+```{r}
+# Merge all participant dfs into one df
+
+# create an empty data frame to store merged data
+df.raw <- data.frame()
+
+# loop through each participant ID and merge their df
+for (part_id in participant_ids) {
+  # Construct the name of the data frame variable
+  df_name <- paste0("df.raw.merged_", part_id)
+  
+  # check if the data frame exists in the global environment
+  if (exists(df_name, envir = .GlobalEnv)) {
+    # get the data frame from its name
+    df_participant <- get(df_name, envir = .GlobalEnv)
+    
+    # merge the data frame with the main merged data frame
+    df.raw <- rbind(df.raw, df_participant)
+  }
+}
+```
+
+```{r}
+# add an index column
+df.raw <- df.raw %>%
+  mutate(index = dplyr::row_number()) %>%
+  relocate(index, .before = 1)
+```
+
+```{r}
+# Add the Digit Span (working memory) scores of each participant
+
+# Create an empty digit_span_score column
+df.raw$digit_span_score <- NA
+
+for (part_id in unique(df.raw$participant)) {
+  # Construct the filename based on the participant ID
+  filename <- paste0(organized_data_path, "/digit_span_", part_id, ".xlsx")
+  
+  # Check if the file exists
+  if (file.exists(filename)) {
+    # Correctly read the file using read_excel
+    digit_span_data <- read_excel(filename)
+    
+    # The score is located in the first row of the 'score' column
+    score <- digit_span_data$score[1]
+      
+    df.raw<- df.raw%>%
+      mutate(digit_span_score = ifelse(participant == part_id, score, digit_span_score))
+  } else {
+    cat("File not found for participant", part_id, "\n")
+  }
+}
+```
+
+```{r}
+# Add the hearWHO (digit-in-noise task for hearing in noise) scores of each participants
+
+hearwho_pilot_data <- read_excel(paste0(organized_data_path,
+                                        "/hearwho_scores.xlsx"))
+
+# Excel file has columns named 'participant' and 'score'
+# Merge the scores into df.raw based on participant ID
+df.raw <- merge(df.raw, hearwho_pilot_data[, c("participant", "score")], 
+                       by.x = "participant", by.y = "participant", all.x = TRUE)
+
+# Rename the 'score' column to 'digit_in_noise_score'
+names(df.raw)[names(df.raw) == "score"] <- "digit_in_noise_score"
+```
+
+```{r}
+# Add slider values and time points
+
+# do the columns exist
+if (!"slider_values" %in% names(df.raw)) df.raw$slider_values <- NA_character_
+if (!"slider_time"   %in% names(df.raw)) df.raw$slider_time   <- NA_character_
+
+# Build the expected filename tail from story_name
+# - non-sped: "<story>_story_noise.wav.csv"
+# - sped:     "<story>_noise.wav.csv" (story already includes "_sped")
+slider_tail_from_story <- function(story_name) {
+  if (grepl("_sped$", story_name)) {
+    paste0(story_name, "_noise.wav.csv")
+  } else {
+    paste0(story_name, "_story_noise.wav.csv")
+  }
+}
+
+# Find the slider file for a given participant + story_name
+find_slider_file <- function(base_dir, part_id, story_name) {
+  slider_dir <- file.path(base_dir, part_id, paste0("slider_", part_id))
+  # pattern: slider_<pid>_*_<story-tail>
+  tail <- slider_tail_from_story(story_name)
+  pattern <- file.path(slider_dir, sprintf("slider_%s_*_%s", part_id, tail))
+  files <- Sys.glob(pattern)
+  if (length(files) == 0) return(NA_character_)
+  # If multiple matches, take the lexicographically first (usually the earliest like 001)
+  files[order(files)][1]
+}
+
+# Read a slider file and return compact strings for values/time
+read_slider_compact <- function(path) {
+  if (is.na(path)) return(list(values = NA_character_, time = NA_character_))
+  dat <- tryCatch(utils::read.csv(path, skip = 1), error = function(e) NULL)
+  if (is.null(dat)) return(list(values = NA_character_, time = NA_character_))
+
+  values_str <- if ("value" %in% names(dat)) paste(dat$value, collapse = ",") else NA_character_
+  time_str   <- if ("time"  %in% names(dat)) paste(round(dat$time, 2), collapse = ",") else NA_character_
+  list(values = values_str, time = time_str)
+}
+
+# Apply row-wise over df.raw
+res <- purrr::pmap(
+  df.raw[, c("participant", "story_name")],
+  function(participant, story_name) {
+    # locate the file
+    fp <- find_slider_file(organized_data_path, participant, story_name)
+    # read/compact
+    read_slider_compact(fp)
+  }
+)
+
+# Write back to df.raw
+df.raw$slider_values <- purrr::map_chr(res, "values")
+df.raw$slider_time   <- purrr::map_chr(res, "time")
+
+```
+
+```{r}
+# Re-scale slider values to be between 0-1
+
+# Convert slider_values from string to numeric lists 
+df.raw$slider_values <- strsplit(as.character(df.raw$slider_values), 
+                                        ",\\s*")
+df.raw$slider_values <- lapply(df.raw$slider_values, 
+                                      function(x) as.numeric(x))
+
+rescale_values <- function(values) {
+  sapply(values, function(x) x / 255)
+}
+
+# Apply the rescaling function to each row's slider_values
+df.raw$slider_values_rescaled <- lapply(df.raw$slider_values, 
+                                               rescale_values)
+```
+
+
+## Calculations for the data exclusion criteria
+For the post-hoc comprehension measures, to ensure that we are validating the novel measure against actual comprehension, following exclusion criteria will be applied: 
+
+### 1. Absolute threshold for comprehension 
+75% correctness on the multiple choice questions for the slowest (easiest to comprehend) speech rate.
+
+```{r}
+# accuracy at the slowest speech rate per participant
+acc_1x_tbl <- df.raw %>%
+  filter(speech_rate == 1) %>%
+  group_by(participant) %>%
+  summarise(
+    n_questions_1x = sum(!is.na(`multiple_choice accuracy`)),
+    n_correct_1x   = sum(`multiple_choice accuracy` == TRUE, na.rm = TRUE),
+    acc_1x         = if_else(n_questions_1x > 0, n_correct_1x / n_questions_1x, NA_real_),
+    .groups = "drop"
+  )
+
+# fail if no 1x data or acc < 0.75
+participants_all <- df.raw %>% distinct(participant)
+
+fails <- participants_all %>%
+  left_join(acc_1x_tbl, by = "participant") %>%
+  mutate(fail_abs75 = is.na(acc_1x) | acc_1x < 0.75) %>%
+  filter(fail_abs75) %>%
+  transmute(
+    participant,
+    accuracy_1x = round(acc_1x, 3),   # may be NA if no 1x data
+    n_correct_1x,
+    n_questions_1x
+  ) %>%
+  arrange(participant)
+
+# Print the failing participants and their accuracy
+print(fails, n = Inf)
+```
+### 2. Slider movements
+For the physical slider to ensure that participants actually used it actively: Distribution of the amount of slider movements across trials and participants- If a participant's slider movements exceeds ±3.5 standard deviations from the mean, we will remove those participants' data.
+
+```{r}
+# Calculate movement score with magnitude for each trial
+df.raw <- df.raw %>%
+  rowwise() %>%
+  mutate(trial_movement_score_magnitude = 
+           ifelse(slider_values[[1]][1] == 0, sum(abs(diff(unlist(slider_values)))), NA))
+
+# Aggregate these scores for each participant
+participant_movement_scores <- df.raw %>%
+  group_by(participant) %>%
+  summarise(movement_score_all = sum(trial_movement_score_magnitude, na.rm = TRUE))
+
+# Add the movement scores back to the df
+df.raw <- left_join(df.raw, participant_movement_scores, by = "participant")
+
+# Calculate mean and standard deviation for movement scores, identify outliers
+mean_movement_score <- mean(participant_movement_scores$movement_score_all, na.rm = TRUE)
+sd_movement_score <- sd(participant_movement_scores$movement_score_all, na.rm = TRUE)
+
+cutoff_upper <- mean_movement_score + 3.5 * sd_movement_score
+cutoff_lower <- mean_movement_score - 3.5 * sd_movement_score
+
+outliers <- participant_movement_scores %>%
+  filter(movement_score_all < cutoff_lower | movement_score_all > cutoff_upper) %>%
+  pull(participant)
+
+# Print participant IDs for those outside the ±3.5 SD range
+cat("Participants outside the ±3.5 SD range:", paste(outliers, collapse = ", "), "\n")
+```
+
+### Remove the participants that failed the criteria. 
+p_2, p_13, p_17, p_25  failed the question accuracy criterion.
+```{r}
+# Remove failed participants
+df.raw_success <- df.raw %>%
+  filter(participant != "p_2")
+df.raw_success <- df.raw_success %>%
+  filter(participant != "p_13")
+df.raw_success <- df.raw_success %>%
+  filter(participant != "p_17")
+df.raw_success <- df.raw_success %>%
+  filter(participant != "p_25")
+
+# check
+count(df.raw_success, participant)
+```
+
+## Save the df 
+```{r}
+# Convert list to string for slider values
+df.raw_success$slider_values <- sapply(df.raw_success$slider_values, 
+                                      function(x) paste(x, collapse = ","))
+
+# Convert list columns to character strings (if they are lists)
+list_cols <- sapply(df.raw_success, is.list)
+
+df.raw_success[list_cols] <- lapply(df.raw_success[list_cols], function(col) {
+  sapply(col, function(x) paste(x, collapse = ","))
+})
+# Write to CSV
+write.csv(df.raw_success, file = "/Users/irmakergin/Desktop/experiment_3/data/organized_data/df.raw.csv", row.names = FALSE)
+```
+
+# ANALYSIS
+```{r}
+# upload data 
+df.data <- read.csv(file.path(organized_data_path, "df.raw.csv"))
+```
+
+```{r}
+# Calculate median trial movements for each trial
+
+df.data <- df.data %>%
+  mutate(
+    slider_values_numeric = str_split(slider_values_rescaled, ",") %>%
+      map(~ as.numeric(.x))
+  )
+
+# Mean and median slider values for each trial
+df.data <- df.data %>%
+  rowwise() %>%
+  mutate(trial_mean_rescaled = mean(unlist(slider_values_numeric), na.rm = TRUE),
+         trial_median_rescaled = median(unlist(slider_values_numeric), na.rm = TRUE)) %>%
+  ungroup()
+```
+
+## Does using the slider change comprehension
+i.e. Is multiple choice accuracy significantly different between the trials 
+for which the slider was used vs not
+
+```{r}
+if ("multiple_choice.accuracy" %in% names(df.data)) names(df.data)[names(df.data) == "multiple_choice.accuracy"] <- "multiple_choice_accuracy"
+
+df.model <- df.data %>%
+  mutate(
+    mcq_bin = as.integer(`multiple_choice_accuracy` %in% c(TRUE, "TRUE", "True", 1)), #make numeric
+    slider = factor(slider, levels = c("no", "yes")),  
+    # convert to factors
+    digit_span_grp  = factor(digit_span_score),
+    digit_noise_grp = factor(digit_in_noise_score)
+  ) %>%
+  filter(!is.na(mcq_bin), !is.na(slider),
+         !is.na(digit_span_grp), !is.na(digit_noise_grp))
+
+# Fit GLMM (binomial) 
+m_slider <- glmer(
+  mcq_bin ~ slider + (1 | digit_span_grp) + (1 | digit_noise_grp),
+  data = df.model,
+  family = binomial)
+
+
+cat("Model summary (log-odds scale)")
+print(summary(m_slider), corr = FALSE)
+
+cat(" Estimated probabilities by slider (EMMs)")
+emm <- emmeans(m_slider, ~ slider, type = "response")
+print(emm)
+
+cat("Pairwise comparison (yes vs no) ")
+cmp <- contrast(emm, method = "revpairwise")  # yes - no 
+print(cmp)
+```
+
+We wanted to test whether using the slider alters comprehension, operationalized by the multiple choice question accuracy. We fit a binomial generalized linear mixed‐effects model predicting multiple-choice accuracy from a fixed effect of slider use (yes vs. no), with random intercepts of digit span and digit-in-noise levels. Estimated marginal probabilities were 0.829 (SE = 0.0217) when the slider was not used and 0.797 (SE = 0.0239) when it was used, corresponding to an odds ratio of 0.81 for slider yes vs. no (z = −1.338, p = .18). Thus, we find no evidence that using the slider changes multiple choice accuracy.
+
+
+## Does mcq accuracy changes between slow and fast segments?
+Are multiple choice questions significantly worse for faster compared to slower segments?
+```{r}
+
+# Aggregate MCQ to segment-level 
+agg_mcq <- df.data %>%
+  mutate(
+    mcq_bin = as.integer(multiple_choice_accuracy %in% c(TRUE, "TRUE", "True", 1)),
+    speed   = factor(ifelse(speech_rate == 1, "slow", "fast"), levels = c("slow","fast")),
+    base_story = if ("base_story" %in% names(.)) base_story else sub("_sped$", "", story_name),
+    digit_span_grp  = factor(digit_span_score),
+    digit_noise_grp = factor(digit_in_noise_score)
+  ) %>%
+  filter(!is.na(mcq_bin), !is.na(speed),
+         !is.na(digit_span_grp), !is.na(digit_noise_grp)) %>%
+  group_by(participant, base_story, speed, digit_span_grp, digit_noise_grp) %>%
+  summarise(
+    n_correct = sum(mcq_bin, na.rm = TRUE),
+    n_total   = dplyr::n(),      
+    .groups   = "drop"
+  ) %>%
+  filter(n_total > 0)
+
+# Binomial GLMM on counts 
+m_speed_agg <- glmer(
+  cbind(n_correct, n_total - n_correct) ~ speed +
+    (1 | digit_span_grp) + (1 | digit_noise_grp),
+  data = agg_mcq, family = binomial
+  # , control = glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5))
+)
+
+cat("Aggregated model (Binomial n) summary")
+print(summary(m_speed_agg), corr = FALSE)
+
+# Estimated probabilities & fast/slow contrast 
+emm_speed_agg <- emmeans(m_speed_agg, ~ speed, type = "response")
+cmp_speed_agg <- contrast(emm_speed_agg, method = "revpairwise")  # fast / slow
+
+cat("Estimated probabilities by speed (aggregated)")
+print(emm_speed_agg)
+
+cat("Contrast (fast / slow) — aggregated")
+print(cmp_speed_agg)
+
+```
+## Does slider responses change with increasing speech rate?
+
+```{r}
+df.metric <- df.data %>%
+  mutate(
+    speed = factor(ifelse(speech_rate == 1, "slow", "fast"), levels = c("slow","fast")),
+    digit_span_grp  = factor(digit_span_score),
+    digit_noise_grp = factor(digit_in_noise_score)
+  ) %>%
+  filter(!is.na(trial_median_rescaled),
+         !is.na(speed), !is.na(digit_span_grp), !is.na(digit_noise_grp))
+
+# Quick counts (sanity checks)
+cat("Rows with slider metric:", nrow(df.metric), "\n")
+print(table(df.metric$speed))
+
+
+m_speed_slider <- lmer(
+  trial_median_rescaled ~ speed + 
+    (1 | digit_span_grp) + (1 | digit_noise_grp),
+  data = df.metric, REML = TRUE
+  # add control = lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)) if needed
+)
+
+cat(" Slider model summary")
+print(summary(m_speed_slider), corr = FALSE)
+
+# Estimated means for slow vs fast, and their difference 
+emm_speed_slider <- emmeans(m_speed_slider, ~ speed)  # linear scale equals response
+cmp_speed_slider <- contrast(emm_speed_slider, method = "revpairwise")  # fast - slow
+
+cat("Estimated means by speed (slider response) ")
+print(emm_speed_slider)  # gives emmean, SE, CI
+
+cat(" Contrast (fast - slow) for slider response")
+print(cmp_speed_slider)  # estimate, SE, df, t, p
+```
+
+### joined figure 
+```{r}
+df_mcq <- as.data.frame(emm_speed) %>%
+  transmute(speed,
+            estimate = prob,
+            lower    = asymp.LCL,
+            upper    = asymp.UCL,
+            outcome  = "MCQ accuracy")
+
+# Slider
+df_slider <- as.data.frame(emm_speed_slider) %>%
+  transmute(speed,
+            estimate = emmean,
+            lower    = lower.CL,
+            upper    = upper.CL,
+            outcome  = "Slider response")
+
+df_plot <- bind_rows(df_mcq, df_slider)
+
+# significance labels (fast vs slow) 
+sig_lab <- function(p) ifelse(p < .001, "***",
+                        ifelse(p < .01,  "**",
+                        ifelse(p < .05,  "*",  "ns")))
+p_mcq    <- as.data.frame(contrast(emm_speed,        method = "revpairwise"))$p.value[1]
+p_slider <- as.data.frame(contrast(emm_speed_slider, method = "revpairwise"))$p.value[1]
+lab_mcq     <- sig_lab(p_mcq)
+lab_slider  <- sig_lab(p_slider)
+
+# brackets
+br_gap_mcq    <- 0.028     # above MCQ upper CI
+br_gap_slider <- 0.055     # above Slider upper CI (further from dots)
+br_tick       <- 0.018     # bracket tick length
+star_off      <- 0.010     # stars closer to bracket
+br_alpha      <- 0.2       # transparency for black brackets
+
+y_mcq_br    <- pmin(0.97, max(df_mcq$upper,    na.rm = TRUE) + br_gap_mcq)
+y_slider_br <- pmin(0.97, max(df_slider$upper, na.rm = TRUE) + br_gap_slider)
+
+# if brackets too close, nudge slider one a touch more
+if (abs(y_mcq_br - y_slider_br) < 0.03) y_slider_br <- pmin(0.97, y_mcq_br + 0.05)
+
+#  colors & legend text 
+cols <- c("MCQ accuracy"    = "#C2185B",  # deep pink
+          "Slider response" = "#6A3D9A")  # deep purple
+
+legend_labels <- c("MCQ accuracy"    = "Multiple choice question",
+                   "Slider response" = "Real-time comprehension")
+
+# plot
+ggplot(df_plot, aes(x = speed, y = estimate, group = outcome, color = outcome)) +
+  geom_line(linewidth = 1, show.legend = FALSE) +
+  geom_point(size = 3, shape = 16) +                                        # legend shows dots
+  geom_linerange(aes(ymin = lower, ymax = upper), linewidth = 0.9, show.legend = FALSE) +
+  scale_color_manual(values = cols, name = "Comprehension Measure", labels = legend_labels) +
+  # rename ticks: slow -> x1, fast -> x2.5
+  scale_x_discrete(labels = c(slow = "x1", fast = "x2.5"),
+                   expand  = expansion(mult = c(0.05, 0.05))) +
+  scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1)) +
+  coord_cartesian(clip = "off") +
+  labs(x = "Speech Rate", y = "Predicted Comprehension Score") +
+
+  #MCQ bracket and star
+  geom_segment(aes(x = 1, xend = 2, y = y_mcq_br, yend = y_mcq_br),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black", alpha = br_alpha) +
+  geom_segment(aes(x = 1, xend = 1, y = y_mcq_br, yend = y_mcq_br - br_tick),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black", alpha = br_alpha) +
+  geom_segment(aes(x = 2, xend = 2, y = y_mcq_br, yend = y_mcq_br - br_tick),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black", alpha = br_alpha) +
+  annotate("text", x = 1.5, y = y_mcq_br + star_off, label = lab_mcq,
+           color = cols["MCQ accuracy"], size = 5) +
+
+  #  Slider bracket (higher) and star 
+  geom_segment(aes(x = 1, xend = 2, y = y_slider_br, yend = y_slider_br),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black", alpha = br_alpha) +
+  geom_segment(aes(x = 1, xend = 1, y = y_slider_br, yend = y_slider_br - br_tick),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black", alpha = br_alpha) +
+  geom_segment(aes(x = 2, xend = 2, y = y_slider_br, yend = y_slider_br - br_tick),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black", alpha = br_alpha) +
+  annotate("text", x = 1.5, y = y_slider_br + star_off, label = lab_slider,
+           color = cols["Slider response"], size = 5) +
+
+  theme_classic(base_size = 14) +
+  theme(
+    aspect.ratio       = 1,
+    axis.text.x        = element_text(size = 12),
+    axis.text.y        = element_text(size = 12),
+    legend.position    = "right", #c(0.98, 0.08),    
+    legend.justification = c(1, 1),
+    legend.title       = element_text(size = 12),
+    legend.background  = element_rect(fill = scales::alpha("white", 0.75), color = NA)
+  ) +
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 16, size = 3)))
+
+
+```
+
+## Whether multiple choice accuracy change when participant hear sped up first vs x1 first
+
+```{r}
+df0 <- df.data %>%
+  dplyr::group_by(participant) %>%
+  dplyr::mutate(
+    index = if (!"index" %in% names(dplyr::cur_data())) dplyr::row_number() else index
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    base_story = stringr::str_remove(story_name, "_sped$"),
+    # Factor for speech rate
+    speech_rate = factor(ifelse(speech_rate == 1, "x1", "x2.5"),
+                         levels = c("x1", "x2.5")),
+    # MCQ accuracy as 0/1 
+    mcq_bin = as.integer(multiple_choice_accuracy %in% c(TRUE, "TRUE", "True", 1)),
+    # Random-effect grouping factors 
+    digit_span_grp  = factor(digit_span_score),
+    digit_noise_grp = factor(digit_in_noise_score)
+  )
+
+
+# Order per participant × base_story: which speed came first?
+
+order_map <- df0 %>%
+  dplyr::filter(speech_rate %in% c("x1","x2.5")) %>%
+  dplyr::group_by(participant, base_story, speech_rate) %>%
+  dplyr::summarise(first_idx = min(index, na.rm = TRUE), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = speech_rate, values_from = first_idx) %>%
+  dplyr::mutate(
+    order_group = dplyr::case_when(
+      !is.na(`x2.5`) & !is.na(x1) & `x2.5` < x1 ~ "x2.5_first",
+      !is.na(`x2.5`) & !is.na(x1) & x1 < `x2.5` ~ "x1_first",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  dplyr::select(participant, base_story, order_group)
+
+
+# only story-pairs with both speeds (as sanity check)
+
+both_speeds <- df0 %>%
+  dplyr::filter(!is.na(mcq_bin)) %>%
+  dplyr::count(participant, base_story, speech_rate) %>%
+  tidyr::pivot_wider(names_from = speech_rate, values_from = n, values_fill = 0) %>%
+  dplyr::mutate(has_x1 = x1 > 0, has_x2.5 = `x2.5` > 0) %>%
+  dplyr::filter(has_x1 & has_x2.5) %>%
+  dplyr::distinct(participant, base_story)
+
+# attach order- requires non-missing outcome & order
+df.model <- df0 %>%
+  dplyr::inner_join(both_speeds, by = c("participant","base_story")) %>%
+  dplyr::left_join(order_map, by = c("participant","base_story")) %>%
+  dplyr::filter(!is.na(mcq_bin), !is.na(order_group)) %>%
+  dplyr::mutate(
+    speech_rate = forcats::fct_drop(speech_rate),
+    order_group = forcats::fct_drop(factor(order_group, levels = c("x1_first","x2.5_first")))
+  )
+
+# Aggregate MCQ per segment (participant × base_story × speed × order)
+
+agg_mcq <- df.model %>%
+  dplyr::group_by(participant, base_story, speech_rate, order_group, digit_span_grp, digit_noise_grp) %>%
+  dplyr::summarise(
+    n_correct = sum(mcq_bin, na.rm = TRUE),
+    n_total   = dplyr::n(),
+    .groups   = "drop"
+  ) %>%
+  dplyr::filter(n_total > 0) %>%
+  dplyr::mutate(
+    speech_rate = forcats::fct_drop(speech_rate),
+    order_group = forcats::fct_drop(order_group)
+  )
+
+# Diagnostics on levels present
+
+cat("Levels in agg_mcq$speech_rate:\n"); print(levels(agg_mcq$speech_rate))
+cat("Levels in agg_mcq$order_group:\n");  print(levels(agg_mcq$order_group))
+cat("\nCounts by order_group:\n");         print(table(agg_mcq$order_group, useNA = "ifany"))
+
+
+# fit Speed × Order 
+
+has_two_orders <- nlevels(agg_mcq$order_group) >= 2
+
+if (has_two_orders) {
+  m_mcq_agg <- glmer(
+    cbind(n_correct, n_total - n_correct) ~ speech_rate * order_group +
+      (1 | digit_span_grp) + (1 | digit_noise_grp),
+    data = agg_mcq,
+    family = binomial
+    # control = glmerControl(optimizer="bobyqa", optCtrl = list(maxfun = 2e5))
+  )
+
+  cat("MCQ aggregated (GLMM) summary — Speed × Order")
+  print(summary(m_mcq_agg), corr = FALSE)
+
+  emm <- emmeans(m_mcq_agg, ~ speech_rate * order_group, type = "response")
+  cat("Estimated probabilities by Speech rate × Order ")
+  print(emm)
+
+  cmp <- contrast(emm, method = "revpairwise", by = "order_group")  # x2.5 vs x1 within each order
+  cat(" Pairwise contrast (x2.5 / x1) within each Order group ")
+  print(cmp)
+
+} else {
+  message("Only one order_group present after filtering; fitting speed-only model.")
+
+  m_speed <- glmer(
+    cbind(n_correct, n_total - n_correct) ~ speech_rate +
+      (1 | digit_span_grp) + (1 | digit_noise_grp),
+    data = agg_mcq,
+    family = binomial
+    # control = glmerControl(optimizer="bobyqa", optCtrl = list(maxfun = 2e5))
+  )
+
+  cat(" MCQ aggregated (GLMM) summary — Speed only ")
+  print(summary(m_speed), corr = FALSE)
+
+  emm_speed <- emmeans(m_speed, ~ speech_rate, type = "response")
+  cat(" Estimated probabilities by Speech rate ")
+  print(emm_speed)
+
+  cmp_speed <- contrast(emm_speed, method = "revpairwise")  # x2.5 vs x1
+  cat(" Pairwise contrast (x2.5 / x1) ")
+  print(cmp_speed)
+}
+```
+We tested whether comprehension depended on the order in which speeds were heard by fitting a binomial GLMM predicting multiple-choice accuracy from Speech rate (x1 vs. x2.5), Order (x1-first vs. x2.5-first), and their interaction (speech_rate × order_group), with random intercepts grouped by digit-span and digit-in-noise levels. The interaction was significant (β = −1.235, SE = 0.339, z = −3.65, p < .001), indicating that the effect of speed depends on order. Estimated probabilities (EMMs) showed no difference when x1 came first (x1: 0.871, x2.5: 0.868; OR = 0.97, z = −0.13, p = .90), but a substantial drop when x2.5 came first (x1: 0.868 vs. x2.5: 0.648), corresponding to a ~22 percentage-point decrease and an odds ratio of 0.28 (z = −5.72, p < .0001). Thus, comprehension at the faster rate was only worse when the sped version preceded the x1 version; if listeners heard x1 first, performance at 2.5× was comparable to x1. (Model note: a singular-fit warning reflected near-zero variance for the digit-span random intercept; the fixed-effect conclusions above are unaffected.)
+
+```{r}
+# EMMs on probability scale (for plotting)
+emm_mcq <- as.data.frame(emmeans(m_mcq_agg, ~ speech_rate * order_group, type = "response"))
+# Columns are typically: speech_rate, order_group, prob, SE, asymp.LCL, asymp.UCL
+
+#  p-value for ORDER difference at x2.5 (for the star) 
+ord_within_rate_mcq <- as.data.frame(
+  contrast(emmeans(m_mcq_agg, ~ order_group | speech_rate, type = "response"),
+           method = "revpairwise")
+)
+p_x25_mcq <- ord_within_rate_mcq %>%
+  dplyr::filter(speech_rate == "x2.5") %>%
+  dplyr::pull(p.value)
+
+sig_lab <- function(p) ifelse(p < .001, "***", ifelse(p < .01, "**", ifelse(p < .05, "*", "ns")))
+star_lab_mcq <- sig_lab(p_x25_mcq)
+
+# y-range spanned by the two order EMMs at x2.5 (for the bracket) 
+y_stats_mcq <- emm_mcq %>%
+  dplyr::filter(speech_rate == "x2.5") %>%
+  dplyr::summarise(ymin = min(prob), ymax = max(prob), .groups = "drop") %>%
+  dplyr::mutate(y_mid = 0.5 * (ymin + ymax))
+
+# plot config
+pinks <- c("x1_first" = "#C2185B",   
+           "x2.5_first" = "#F48FB1") 
+
+bracket_x <- 2.13   
+tick_dx   <- 0.06  
+
+ggplot(emm_mcq, aes(x = speech_rate, y = prob,
+                    group = order_group, color = order_group)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 4, shape = 16) +
+  geom_linerange(aes(ymin = asymp.LCL, ymax = asymp.UCL), linewidth = 0.9) +
+  scale_x_discrete(limits = c("x1","x2.5"),
+                   expand = expansion(mult = c(0.05, 0.25))) +
+  scale_color_manual(
+    values = pinks,
+    breaks = c("x1_first","x2.5_first"),
+    labels = c("x1 first","x2.5 first"),
+    name   = "Presentation Order"
+  ) +
+  labs(x = "Speech Rate", y = "Predicted Multiple Choice QUestion Accuracy") +
+  # single bracket & star at x2.5 (to the right), with clipping off 
+  geom_segment(data = y_stats_mcq,
+               aes(x = bracket_x, xend = bracket_x, y = ymin, yend = ymax),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_segment(data = y_stats_mcq,
+               aes(x = bracket_x, xend = bracket_x - tick_dx, y = ymin, yend = ymin),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_segment(data = y_stats_mcq,
+               aes(x = bracket_x, xend = bracket_x - tick_dx, y = ymax, yend = ymax),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_text(data = y_stats_mcq,
+            aes(x = bracket_x + 0.06, y = y_mid, label = star_lab_mcq),
+            inherit.aes = FALSE, size = 5) +
+  scale_y_continuous(breaks = c(0, 0.5, 1)) +
+  coord_cartesian(ylim = c(0, 1), clip = "off") +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position      = c(0.98, 0.30),
+    legend.justification = c(1, 1),
+    legend.title         = element_text(size = 12),
+    legend.background    = element_rect(fill = scales::alpha("white", 0.7), color = NA),
+    aspect.ratio         = 1,
+    axis.text.x          = element_text(size = 12),
+    axis.text.y          = element_text(size = 12)
+  ) +
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 16, size = 3)))
+```
+
+
+## Whether slider responses change when they hear sped up first vs x1 first
+
+```{r}
+
+# Prep 
+df0 <- df.data %>%
+  dplyr::group_by(participant) %>%
+  dplyr::mutate(index = if (!"index" %in% names(dplyr::cur_data())) dplyr::row_number() else index) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    base_story = stringr::str_remove(story_name, "_sped$"),
+    speech_rate = factor(ifelse(speech_rate == 1, "x1", "x2.5"), levels = c("x1","x2.5")),
+    # robust numeric parse (turn "", "NA", "NaN" into real NA)
+    trial_median_rescaled = {
+      x <- as.character(trial_median_rescaled)
+      x[x %in% c("", "NA", "NaN")] <- NA_character_
+      suppressWarnings(as.numeric(x))
+    },
+    digit_span_grp  = factor(digit_span_score),
+    digit_noise_grp = factor(digit_in_noise_score)
+  )
+
+#  Order per participant × story 
+order_map <- df0 %>%
+  dplyr::filter(speech_rate %in% c("x1","x2.5")) %>%
+  dplyr::group_by(participant, base_story, speech_rate) %>%
+  dplyr::summarise(first_idx = min(index, na.rm = TRUE), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = speech_rate, values_from = first_idx) %>%
+  dplyr::mutate(
+    order_group = dplyr::case_when(
+      !is.na(`x2.5`) & !is.na(x1) & `x2.5` < x1 ~ "x2.5_first",
+      !is.na(`x2.5`) & !is.na(x1) & x1  < `x2.5` ~ "x1_first",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  dplyr::select(participant, base_story, order_group)
+
+df_metric <- df0 %>%
+  dplyr::left_join(order_map, by = c("participant","base_story")) %>%
+  dplyr::filter(!is.na(trial_median_rescaled), !is.na(order_group)) %>%
+  dplyr::mutate(
+    order_group = factor(order_group, levels = c("x1_first","x2.5_first")),
+    speech_rate = forcats::fct_drop(speech_rate)
+  )
+
+#  sanity checks 
+cat("Rows with metric:", nrow(df_metric), "\n")
+print(table(df_metric$speech_rate, useNA="ifany"))
+print(table(df_metric$order_group, useNA="ifany"))
+
+if (nrow(df_metric) == 0) stop("No non-missing trial_median_rescaled rows after attaching order.")
+
+has_two_orders <- nlevels(df_metric$order_group) >= 2
+has_two_speeds <- nlevels(df_metric$speech_rate) >= 2
+
+if (has_two_orders && has_two_speeds) {
+  m <- lmer(
+    trial_median_rescaled ~ speech_rate * order_group +
+      (1 | digit_span_grp) + (1 | digit_noise_grp),
+    data = df_metric
+  )
+  cat("LMM — trial_median_rescaled ~ speech_rate * order_group")
+  print(summary(m), corr = FALSE)
+
+  emm <- emmeans(m, ~ speech_rate * order_group)
+  cat(" Estimated means (Speech × Order) "); print(emm)
+
+  cmp <- contrast(emm, method = "revpairwise", by = "order_group")  # x2.5 - x1 within each order
+  cat(" Pairwise (x2.5 - x1) within each Order "); print(cmp)
+
+} else if (has_two_speeds) {
+  message("Only one order_group present among metric rows; fitting speech-only model.")
+  m <- lmer(
+    trial_median_rescaled ~ speech_rate +
+      (1 | digit_span_grp) + (1 | digit_noise_grp),
+    data = df_metric
+  )
+  cat("LMM — trial_median_rescaled ~ speech_rate ")
+  print(summary(m), corr = FALSE)
+
+  emm <- emmeans(m, ~ speech_rate)
+  cat("Estimated means by Speech rate "); print(emm)
+  print(contrast(emm, method = "revpairwise"))
+
+} else {
+  stop("speech_rate has <2 levels among rows with the metric.")
+}
+
+```
+We tested whether slider responses differed by speech rate (x1 vs. x2.5) and whether this depended on order (x1-first vs. x2.5-first). We fit a linear mixed model predicting trial_median_rescaled from Speech rate × Order, with random intercepts grouped by digit-span and digit-in-noise levels (N = 525 trials with a non-missing metric; 260 x1 and 265 x2.5; order balance: 265 x1-first, 260 x2.5-first). The model showed a large main effect of speech rate (β = −0.322, SE = 0.024, t(506) = −13.61, p < .001) and a significant interaction (β = −0.107, SE = 0.034, t(507) = −3.17, p = .0016), indicating the drop at 2.5× was bigger when the sped version came first. Estimated means (±SE) were:
+x1-first: x1 = 0.938 ± 0.053, x2.5 = 0.616 ± 0.053 (difference = −0.322, p < .0001);
+x2.5-first: x1 = 0.940 ± 0.053, x2.5 = 0.511 ± 0.053 (difference = −0.429, p < .0001).
+Thus, slider responses were markedly lower at the faster rate overall, with an additional ~0.11 reduction when participants heard the sped-up version before the 1× version. Random-effects SDs were 0.120 (digit-span) and 0.073 (digit-in-noise); residual SD = 0.191.
+
+```{r}
+
+# EMMs from your fitted model 
+emm_df <- as.data.frame(emmeans(m, ~ speech_rate * order_group))
+
+#p-value for order difference at x2.5 (for the star) 
+ord_within_rate <- as.data.frame(
+  contrast(emmeans(m, ~ order_group | speech_rate), method = "revpairwise")
+)
+p_x25 <- ord_within_rate %>%
+  dplyr::filter(speech_rate == "x2.5") %>%
+  dplyr::pull(p.value)
+
+star_lab <- ifelse(p_x25 < .001, "***",
+                   ifelse(p_x25 < .01, "**",
+                          ifelse(p_x25 < .05, "*", "ns")))
+
+
+# y-range spanned by the two order EMMs at x2.5
+y_stats <- emm_df %>%
+  dplyr::filter(speech_rate == "x2.5") %>%
+  dplyr::summarise(ymin = min(emmean), ymax = max(emmean), .groups = "drop") %>%
+  dplyr::mutate(y_mid = (ymin + ymax)/2)
+
+# plot
+
+bracket_x <- 2.13   
+tick_dx   <- 0.06  
+
+ggplot(emm_df, aes(x = speech_rate, y = emmean,
+                   group = order_group, color = order_group)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 4, shape = 16) +
+  geom_linerange(aes(ymin = lower.CL, ymax = upper.CL), linewidth = 0.9) +
+  scale_x_discrete(limits = c("x1","x2.5"),
+                   expand = expansion(mult = c(0.05, 0.25))) +  # right padding for bracket
+  scale_color_manual(
+    values = purples,
+    breaks = c("x1_first","x2.5_first"),
+    labels = c("x1 first","x2.5 first"),
+    name   = "Presentation Order"
+  ) +
+  labs(x = "Speech Rate", y = "Predicted Real-Time Comprehension Score") +
+  # single bracket & star at x2.5 (to the right), with clipping off 
+  geom_segment(data = y_stats,
+               aes(x = bracket_x, xend = bracket_x, y = ymin, yend = ymax),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_segment(data = y_stats,
+               aes(x = bracket_x, xend = bracket_x - tick_dx, y = ymin, yend = ymin),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_segment(data = y_stats,
+               aes(x = bracket_x, xend = bracket_x - tick_dx, y = ymax, yend = ymax),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_text(data = y_stats,
+            aes(x = bracket_x + 0.06, y = y_mid, label = star_lab),
+            inherit.aes = FALSE, size = 5) +
+  scale_y_continuous(breaks = c(0, 0.5, 1)) +
+  coord_cartesian(ylim = c(0, 1), clip = "off") +  
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = c(0.98, 0.30),
+    legend.title = element_text(size = 12), 
+    legend.justification = c(1, 1),
+    legend.background = element_rect(fill = scales::alpha("white", 0.7), color = NA),
+    aspect.ratio = 1,
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 16, size = 3)))
+
+
+
+```
+
+### joined figure for order analysis
+
+```{r figure-size, fig.width=10, fig.height=5}
+
+# PANEL A: MCQ 
+p_mcq <- ggplot(emm_mcq, aes(x = speech_rate, y = prob,
+                             group = order_group, color = order_group)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 4, shape = 16) +
+  geom_linerange(aes(ymin = asymp.LCL, ymax = asymp.UCL), linewidth = 0.9) +
+  scale_x_discrete(limits = c("x1","x2.5"),
+                   expand = expansion(mult = c(0.05, 0.25))) +
+  scale_color_manual(
+    values = c("x1_first"="#C2185B","x2.5_first"="#F48FB1"),
+    breaks = c("x1_first","x2.5_first"),
+    labels = c("x1 first","x2.5 first"),
+    name   = "Presentation Order",
+    drop   = FALSE               # <- keep legend entries
+  ) +
+  labs(x = "Speech Rate", y = "Predicted Multiple-Choice Accuracy") +
+  geom_segment(data = y_stats_mcq,
+               aes(x = bracket_x, xend = bracket_x, y = ymin, yend = ymax),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_segment(data = y_stats_mcq,
+               aes(x = bracket_x, xend = bracket_x - tick_dx, y = ymin, yend = ymin),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_segment(data = y_stats_mcq,
+               aes(x = bracket_x, xend = bracket_x - tick_dx, y = ymax, yend = ymax),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_text(data = y_stats_mcq,
+            aes(x = bracket_x + 0.06, y = y_mid, label = star_lab_mcq),
+            inherit.aes = FALSE, size = 5) +
+  scale_y_continuous(breaks = c(0, 0.5, 1)) +
+  coord_cartesian(ylim = c(0, 1), clip = "off") +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position      = c(0.98, 0.30),
+    legend.justification = c(1, 1),
+    legend.title         = element_text(size = 12),
+    legend.background    = element_rect(fill = scales::alpha("white", 0.7), color = NA),
+    aspect.ratio         = 1,
+    axis.text.x          = element_text(size = 12),
+    axis.text.y          = element_text(size = 12),
+    plot.margin          = margin(5.5, 20, 5.5, 5.5)
+  ) +
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 16, size = 3)))
+
+# PANEL B: RT slider metric 
+p_rt <- ggplot(emm_df, aes(x = speech_rate, y = emmean,
+                           group = order_group, color = order_group)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 4, shape = 16) +
+  geom_linerange(aes(ymin = lower.CL, ymax = upper.CL), linewidth = 0.9) +
+  scale_x_discrete(limits = c("x1","x2.5"),
+                   expand = expansion(mult = c(0.05, 0.25))) +
+  scale_color_manual(
+    values = c("x1_first"="#6A3D9A","x2.5_first"="#B26BF2"),
+    breaks = c("x1_first","x2.5_first"),
+    labels = c("x1 first","x2.5 first"),
+    name   = "Presentation Order",
+    drop   = FALSE
+  ) +
+  labs(x = "Speech Rate", y = "Predicted Real-Time Comprehension Score") +
+  geom_segment(data = y_stats,
+               aes(x = bracket_x, xend = bracket_x, y = ymin, yend = ymax),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_segment(data = y_stats,
+               aes(x = bracket_x, xend = bracket_x - tick_dx, y = ymin, yend = ymin),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_segment(data = y_stats,
+               aes(x = bracket_x, xend = bracket_x - tick_dx, y = ymax, yend = ymax),
+               inherit.aes = FALSE, linewidth = 0.6, color = "black") +
+  geom_text(data = y_stats,
+            aes(x = bracket_x + 0.06, y = y_mid, label = star_lab),
+            inherit.aes = FALSE, size = 5) +
+  scale_y_continuous(breaks = c(0, 0.5, 1)) +
+  coord_cartesian(ylim = c(0, 1), clip = "off") +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position      = c(0.98, 0.30),
+    legend.justification = c(1, 1),
+    legend.title         = element_text(size = 12),
+    legend.background    = element_rect(fill = scales::alpha("white", 0.7), color = NA),
+    aspect.ratio         = 1,
+    axis.text.x          = element_text(size = 12),
+    axis.text.y          = element_text(size = 12),
+    plot.margin          = margin(5.5, 20, 5.5, 5.5)
+  ) +
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 16, size = 3)))
+
+#Combine 1×2; keep text sizes identical across panels 
+(p_mcq | p_rt) +
+  plot_layout(widths = c(1, 1)) &
+  theme(text = element_text(size = 14))  # uniform base text size
+
+
+```
+
