@@ -6,7 +6,7 @@ Project aiming to develop and validate a novel, time-resolved behavioral measure
 The structure for each experiment is as follows:
 ```
 ├── analysis
-├── data
+├── data (in the OSF repository of the project)
     └── raw_data
     └── organized_data
 ├── experiment_files
@@ -23,7 +23,9 @@ Below are details about the repository. Experiment 2 and 3 folders follow the st
 
 ### Analysis & Data
 
-The /analysis directories contains all code used for analysis and generating the figures. *data_analysis.Rmd* file contains code to wrangle the raw data, and main analysis. *.ipynb* files mainly contain semantic similarity analysis, data visualization, and explanatory data analysis. 
+The /analysis directories contain all code used for analysis and generating the figures. *data_analysis.Rmd* file contains code to wrangle the raw data, and main analysis. *.ipynb* files mainly contain semantic similarity analysis, data visualization, and explanatory data analysis. 
+
+Data files of each experiment can be found in the OSF repository of the OSF repository of the project https://osf.io/zk3c5/files/osfstorage 
 
 #### Data processing & analysis steps 
 
