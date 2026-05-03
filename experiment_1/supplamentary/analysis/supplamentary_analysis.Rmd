@@ -1,3 +1,1973 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f7d77f57b54ca01a74c196953ac9863d6ac8fe3a2acadd98436cb8ecd0b9709e
-size 71495
+---
+title: "Measuring Naturalistic Speech Comprehension in Real Time Supplamentary"
+output: html_document
+
+---
+Analysis on participants eliminated from exp1 due to failing the preregistered
+attention checks/ criteria
+
+# DATA WRANGLING
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+# Load libraries
+
+library(stringr)
+library(fs)
+library(readxl)
+library(readr)
+library(simr)
+library(lmerTest)
+library(patchwork)
+library(RColorBrewer)
+library(cowplot)
+library(scales)
+library(gridExtra)
+library(PerformanceAnalytics)
+library(corrplot)
+library(Hmisc)
+library(GGally)
+library(visreg)
+library(broom.mixed)
+library(sjPlot)
+library(gridExtra)
+library(grid) 
+library(rempsyc)
+library(flextable)
+library(officer)
+library(ggsignif)
+library(MuMIn)
+library(rstatix)
+library(caret)
+library(modelr)
+library(tidyr)
+library(purrr)
+library(broom)
+library(dplyr)
+library(ggplot2)
+library(rsample)
+library(emmeans)
+library(readr)
+library(stringr)
+library(partR2)
+library(multcomp)
+
+
+
+# set the default ggplot theme 
+theme_set(theme_classic())
+```
+
+```{r}
+# Set path and participant ids
+
+# Change the folder path to data folder relative to the wd
+folder_path <- '/Users/irmakergin/Desktop/supplamentary/data'
+
+# Define the list of participant IDs
+participant_ids <- c("p_2","p_6","p_12","p_16","p_20","p_23","p_26","p_27")
+```
+
+```{r}
+# upload data after semantic similarity calculations
+df.data <- read.csv(file.path(folder_path, "df_semantic.csv"))
+```
+
+```{r}
+# Calculate median trial movements for each trial
+
+df.data <- df.data %>%
+  mutate(
+    slider_values_numeric = str_split(slider_values_rescaled, ",") %>%
+      map(~ as.numeric(.x))
+  )
+
+# Mean and median slider values for each trial
+df.data <- df.data %>%
+  rowwise() %>%
+  mutate(trial_mean_rescaled = mean(unlist(slider_values_numeric), na.rm = TRUE),
+         trial_median_rescaled = median(unlist(slider_values_numeric), na.rm = TRUE)) %>%
+  ungroup()
+```
+
+# EXCLUDED PARTICIPANTS 
+
+## I. Semantic Similarity
+
+### How many words did excluded participants write in their summaries on average?
+
+```{r}
+# on average, across speech rates
+df.data <- df.data %>%
+  mutate(
+    summary_text = textbox.text_corrected_manual,
+    summary_text = ifelse(is.na(summary_text), "", summary_text),
+    summary_text = stringr::str_squish(summary_text),
+    word_count   = ifelse(summary_text == "", NA_integer_,
+                          stringr::str_count(summary_text, "\\S+"))
+  )
+overall_avg <- df.data %>%
+  summarise(
+    mean_words = round(mean(word_count, na.rm = TRUE),2),
+    n_summaries = round(sum(!is.na(word_count)),2),
+    total_words = round(sum(word_count, na.rm = TRUE),2)
+  )
+
+overall_avg
+```
+
+```{r}
+# on average, per speech rate
+by_rate <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(
+    mean_words = round(mean(word_count, na.rm = TRUE),2),
+    sd_words   = round(sd(word_count, na.rm = TRUE),2),
+    n_summaries = round(sum(!is.na(word_count)),2),
+    total_words = round(sum(word_count, na.rm = TRUE),2),
+    .groups = "drop"
+  ) %>%
+  arrange(suppressWarnings(as.numeric(as.character(speech_rate))))
+
+by_rate
+```
+
+Which semantic similarity analysis explains comprehension better?
+
+### Visualization
+First, let's visualize all 3 to see if they show the same pattern:
+
+```{r figure-size, fig.width=9, fig.height=5}
+
+# GloVe - Written Summary
+average_similarity_summary <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(
+    average_similarity = mean(glove_sum_max_similarity_rescaled, na.rm = TRUE),
+    sd = sd(glove_sum_max_similarity_rescaled, na.rm = TRUE),
+    n = n(),
+    se = sd / sqrt(n)  # standard error
+  )
+
+
+# GloVe - Heard Segment
+average_similarity_text <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(
+    average_similarity = mean(glove_text_average_max_similarity, na.rm = TRUE),
+    sd = sd(glove_text_average_max_similarity, na.rm = TRUE),
+    n = n(),
+    se = sd / sqrt(n)  # standard error
+  )
+
+# BERT 
+average_similarity_bert <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(
+    average_similarity = mean(bert_cosine_similarity, na.rm = TRUE),
+    sd = sd(bert_cosine_similarity, na.rm = TRUE),
+    n = n(),
+    se = sd / sqrt(n)  # standard error
+  )
+
+
+# Create the plots without x and y labels
+plot_glove_summary <- ggplot(average_similarity_summary, aes(x = factor(speech_rate), 
+                               y = average_similarity, 
+                               fill = as.factor(speech_rate))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7, fill = "green3") +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  labs(x = NULL, y= NULL, 
+       title = "GloVe- Written Summary") +
+  geom_text(aes(label = round(average_similarity, 2)), 
+            vjust = -1, position = position_dodge(width = 0.7), size = 3) +
+  geom_errorbar(aes(ymin = average_similarity - se, ymax = average_similarity + se), 
+                width = 0, position = position_dodge(width = 0.7)) + 
+  theme(axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        plot.title = element_text(size = 13, hjust = 0.5))
+
+plot_glove_text <- ggplot(average_similarity_text, aes(x = factor(speech_rate), 
+                               y = average_similarity, 
+                               fill = as.factor(speech_rate))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7, fill = "darkseagreen2") +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  labs(x = NULL, y = NULL, 
+       title = "GloVe - Heard Segment") +
+  geom_text(aes(label = round(average_similarity, 2)), 
+            vjust = -1, position = position_dodge(width = 0.7), size = 3) +
+  geom_errorbar(aes(ymin = average_similarity - se, ymax = average_similarity + se), 
+                width = 0,position = position_dodge(width = 0.7)) +
+  theme(plot.title = element_text(size = 13, hjust = 0.5))
+
+# Adjust the plot for BERT without individual axis labels
+plot_bert <- ggplot(average_similarity_bert, aes(x = factor(speech_rate), 
+                               y = average_similarity, 
+                               fill = as.factor(speech_rate))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7, fill = "darkseagreen3") +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  labs(x = NULL, y = NULL, 
+       title = "BERT") +
+  geom_text(aes(label = round(average_similarity, 2)), 
+            vjust = -1.2, position = position_dodge(width = 0.7), size = 3) +
+  geom_errorbar(aes(ymin = average_similarity - se, ymax = average_similarity + se), 
+                width = 0, position = position_dodge(width = 0.7)) +
+  theme(plot.title = element_text(size = 13, hjust = 0.5))
+
+#put them in a grid 
+grid.arrange(
+  arrangeGrob(
+  plot_glove_summary,plot_glove_text, plot_bert, 
+    ncol = 3,
+    left = textGrob("Average Normalized Cosine Similarity Value", 
+                    rot = 90, vjust = 0.5),
+   bottom = textGrob("Speech Rate", 
+                    rot = 0, vjust = 0.5)
+  ) 
+)
+```
+### Correlation
+
+Do 3 different semantic similarity measures correlate with each other?
+```{r}
+# Subset the relevant columns
+semantic_columns <- df.data[, c("bert_cosine_similarity", 
+                                "glove_text_average_max_similarity", 
+                                "glove_sum_max_similarity_rescaled")]
+
+# Calculate the correlation matrix
+correlation_matrix <- cor(semantic_columns, use = "complete.obs")
+
+# Print 
+print(correlation_matrix)
+
+```
+Test if any of these correlations are statistically significant:
+```{r}
+# Correlation test between BERT and GloVe- Heard Segment
+test1 <- cor.test(df.data$bert_cosine_similarity, 
+                  df.data$glove_text_average_max_similarity)
+
+# Correlation test between BERT and GloVe- Written Summary
+test2 <- cor.test(df.data$bert_cosine_similarity, 
+                  df.data$glove_sum_max_similarity_rescaled)
+
+# Correlation test between GloVe- Heard Segment & GloVe- Written Summary
+test3 <- cor.test(df.data$glove_text_average_max_similarity,
+                  df.data$glove_sum_max_similarity_rescaled)
+
+print(test1)
+print(test2)
+print(test3)
+
+```
+
+### Comparison
+Which semantic similarity analysis method explains the most varience in comprehension?
+
+To see which if  semantic similarity scores explains variance in comprehension better than the others,we conducted a linear mixed model was conducted to predict the 10-Point Scale responses based on BERT, GloVe- Written Summary, and GloVe- Heard Segment. Random effects for digit span score and digit in noise score were included in the model.
+
+
+```{r}
+# We first need to change the type of likert scale responses
+# Fix decimal separator first
+df.data$likert_rescaled <- gsub(",", ".", df.data$likert_rescaled)
+
+# Now safely convert to numeric
+df.data$likert_rescaled <- as.numeric(df.data$likert_rescaled)
+
+# Check result
+summary(df.data$likert_rescaled)
+str(df.data$likert_rescaled)
+
+```
+
+```{r}
+df.data$likert_rescaled <- as.numeric(as.character(df.data$likert_rescaled))
+
+```
+
+
+```{r}
+model_all<- lmer(likert_rescaled ~ 
+                 bert_cosine_similarity +   glove_text_average_max_similarity +   
+                   glove_sum_max_similarity_rescaled + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+#model_compare <- anova(model_g1, model_all)
+summary(model_all) 
+```
+All fixed effects (different sem similarity scores) are significant but GloVe- Heard Segment.For the The other two are finding independent variance. For the participant who did not fail the inclusion criteria all 3 were significant. But as for included participants, Glove- Written Summary has the highest t value and estimate. Therefore, I will use/ report the GLoVe- written summary Segment for the rest of the analyses.   
+
+### Speech Rate 
+Are semantic similarity scores btw speech rates sig different from each other?
+
+#### Glove- Written Summary
+```{r}
+semantic.anova <- aov(glove_sum_max_similarity_rescaled ~ speech_rate, data = df.data)
+summary(semantic.anova)
+
+pairwise_results <- df.data %>% pairwise_t_test(
+    glove_sum_max_similarity_rescaled ~ speech_rate, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+pairwise_results
+```
+all significant except x1-x2 & x2-x3
+Included participants: All significant except x1-x2
+
+#### Glove- Heard Segment
+```{r}
+semantic.anova2 <- aov(glove_text_average_max_similarity ~ speech_rate, data = df.data)
+summary(semantic.anova2)
+
+pairwise_results2 <- df.data %>% pairwise_t_test(
+    glove_text_average_max_similarity ~ speech_rate, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+pairwise_results2
+```
+All significant except x1-x2, x1-x3, x2-x3, & x4-x5
+Included participants: All significant except x1-x2 & x2-x3
+
+#### BERT
+```{r}
+semantic.anova3 <- aov(bert_cosine_similarity ~ speech_rate, data = df.data)
+summary(semantic.anova3)
+
+pairwise_results3 <- df.data %>% pairwise_t_test(
+    bert_cosine_similarity ~ speech_rate, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+pairwise_results3
+```
+All significant except except x1-x2
+Included participants: All significant except except x2-x3
+
+### Recency Effect
+Is there a recency effect in summaries that participants wrote?
+
+#### Glove- Written Summary
+```{r}
+# First, make sure that the right ones are NA, right now NAs are also 0
+df.data <- df.data %>%
+  mutate(
+    rescaled_glove_bin1 = ifelse(textbox.text_corrected_manual == "", 
+                                 NA, rescaled_glove_bin1),
+    rescaled_glove_bin2 = ifelse(textbox.text_corrected_manual == "", 
+                                 NA, rescaled_glove_bin2),
+    rescaled_glove_bin3 = ifelse(textbox.text_corrected_manual == "", 
+                                 NA, rescaled_glove_bin3),
+    rescaled_glove_bin4 = ifelse(textbox.text_corrected_manual == "", 
+                                 NA, rescaled_glove_bin4),
+    rescaled_glove_bin5 = ifelse(textbox.text_corrected_manual == "", 
+                                 NA, rescaled_glove_bin5)
+  )
+
+# Create a long dataset for bins and scores
+df.bin <- df.data %>%
+  select(participant, index, speech_rate, segment_text, textbox.text_corrected_manual, 
+         glove_bin1, glove_bin2, glove_bin3, glove_bin4, glove_bin5) %>%
+  pivot_longer(cols = starts_with("glove_bin"), 
+               names_to = "bin", 
+               names_prefix = "glove_bin", 
+               values_to = "semantic_score") %>%
+  mutate(bin = as.integer(bin)) %>%
+  arrange(participant, index, bin)
+
+# If a recency effect ->  latter bins should be recalled better than earlier ones
+binned.anova <- aov(semantic_score ~ speech_rate * bin, data = df.bin)
+summary(binned.anova)
+
+df.bin_factor = df.bin %>%
+  mutate(speech_bin = factor(paste(speech_rate, bin, sep="_")))
+
+# pairwise comparison
+df.bin_factor %>% pairwise_t_test(
+   semantic_score ~ speech_bin, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+```
+
+#### Glove- Heard Segment
+```{r}
+# First, make sure that the right ones are NA, right now NAs are also 0
+
+df.data <- df.data %>%
+  mutate(
+    glove2_bin1 = ifelse(textbox.text_corrected_manual == "", NA, glove2_bin1),
+    glove2_bin2 = ifelse(textbox.text_corrected_manual == "", NA, glove2_bin2),
+    glove2_bin3 = ifelse(textbox.text_corrected_manual == "", NA, glove2_bin3),
+    glove2_bin4 = ifelse(textbox.text_corrected_manual == "", NA, glove2_bin4),
+    glove2_bin5 = ifelse(textbox.text_corrected_manual == "", NA, glove2_bin5)
+  )
+
+# Create a long dataset for bins and scores 
+df.bin_glove2 <- df.data %>%
+  select(participant, index, speech_rate, segment_text, textbox.text_corrected_manual, 
+         glove2_bin1, glove2_bin2, glove2_bin3, glove2_bin4, glove2_bin5) %>%
+  pivot_longer(cols = starts_with("glove2_bin"), 
+               names_to = "bin", 
+               names_prefix = "glove2_bin", 
+               values_to = "glove2_score") %>%
+  mutate(bin = as.integer(bin)) %>%
+  arrange(participant, index, bin)
+
+# If a recency effect ->  latter bins should be recalled better than earlier ones
+
+binned.anova2 <- aov(glove2_score ~ speech_rate * bin, data = df.bin_glove2)
+summary(binned.anova2)
+
+df.bin_factor = df.bin_glove2 %>%
+  mutate(speech_bin = factor(paste(speech_rate, bin, sep="_")))
+
+# pairwise comparison
+df.bin_factor %>% pairwise_t_test(
+   glove2_score ~ speech_bin, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+```
+
+#### BERT
+```{r}
+# Create a long dataset for bins and scores for BERT
+df.bin_bert <- df.data %>%
+  select(participant, index, speech_rate, segment_text, textbox.text_corrected_manual, 
+         cosine_similarity_bin1, 
+         cosine_similarity_bin2, 
+         cosine_similarity_bin3, 
+         cosine_similarity_bin4, 
+         cosine_similarity_bin5) %>%
+  pivot_longer(cols = starts_with("cosine_similarity_bin"), 
+               names_to = "bin", 
+               names_prefix = "cosine_similarity_bin", 
+               values_to = "bert_score") %>%
+  mutate(bin = as.integer(bin)) %>%
+  arrange(participant, index, bin)
+
+binned.anova_bert <- aov(bert_score ~ speech_rate * bin, data = df.bin_bert)
+summary(binned.anova_bert)
+
+df.bin_bert_factor = df.bin_bert %>%
+  mutate(speech_bin = factor(paste(speech_rate, bin, sep="_")))
+
+# pairwise comparison
+df.bin_bert_factor %>% pairwise_t_test(
+   bert_score ~ speech_bin, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+```
+There is a main effect of Speech Rate for all 3, main effect of binning (recency) only for GloVe- Heard Segment & BERT as for the included participants. 
+
+## II. Validation
+Can we predict the scores of our novel comprehension measure from the existing post-hoc comprehension measures?
+
+### Each measure as a fixed effect in seperate models
+
+#### 10-Point Scale Ratings 
+
+```{r}
+model_likert<- lmer(trial_median_rescaled ~ 
+                likert_rescaled + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+
+summary(model_likert)
+```
+
+##### Visualize 10-Point Scale Ratings per Sepeech Speed
+```{r figure-size, fig.width=6, fig.height=6 }
+
+# Calculate the average 10-point scale scores per speech_rate category
+average_score_likert <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(average_likert = mean(likert_rescaled, na.rm = TRUE),
+            sd = sd(likert_rescaled, na.rm = TRUE),
+            n = n(),
+            se = sd / sqrt(n)  # standard error
+  )
+
+# Plot
+likert_plot <- ggplot(average_score_likert, aes(x = factor(speech_rate), 
+                                                y = average_likert)) +
+  geom_bar(stat = "identity", width = 0.7, fill = "royalblue") +   
+  labs(x = "Speech Rate", y = "10-Point Scale Response") +
+  geom_text(aes(label = round(average_likert, 2)), vjust = -0.2, size = 6) +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  geom_errorbar(aes(ymin = average_likert - se, ymax = average_likert + se), 
+                width = 0, position = position_dodge(width = 0.5)) +  
+  scale_y_continuous(breaks = c(0, 0.25, 0.50)) + 
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20), 
+        axis.text.y = element_text(size = 20))  
+
+print(likert_plot)
+```
+
+#### Multiple Choice Quesitons
+```{r}
+model_multiple_choice<- lmer(trial_median_rescaled ~ 
+                multiple_choice_accuracy + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+
+summary(model_multiple_choice)
+```
+
+##### Visualize Multiple Choice Quesitons per Speech Rate
+```{r figure-size, fig.width=6, fig.height=6 }
+# Calculate the average multiple_choice_accuracy scores per speech_rate category
+average_scores <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(average_accuracy = mean(multiple_choice_accuracy, na.rm = TRUE),
+            sd = sd(multiple_choice_accuracy, na.rm = TRUE),
+            n = n(),
+            se = sd / sqrt(n)  # standard error
+  )
+
+question_plot <- ggplot(average_scores, aes(x = factor(speech_rate), y = average_accuracy)) +
+  geom_bar(stat = "identity", width = 0.7, fill = "violetred") +   
+  labs(x = "Speech Rate", y = "Multiple Choice Accuracy") +
+  geom_text(aes(label = round(average_accuracy, 2)), vjust = -0.5, size = 6) +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  geom_errorbar(aes(ymin = average_accuracy - se, ymax = average_accuracy + se), 
+                width = 0, position = position_dodge(width = 0.5)) +
+  # Add dashed line at chance level:
+  geom_hline(yintercept = 0.25, linetype = "dashed", color = "black", size=1.5) +  
+  scale_y_continuous(breaks = c(0, 0.25, 0.5)) +  
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  
+        axis.text.y = element_text(size = 20))  
+
+print(question_plot)
+```
+Over chance performance in x5 speed despit reporting not understanding for
+excluded participants as well
+
+#### Summary
+```{r}
+# Summary- GloVe- Written Summary
+model_glove1<- lmer(trial_median_rescaled ~ 
+                glove_sum_max_similarity_rescaled + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+
+summary(model_glove1)
+```
+
+##### Visualize Semantic Simlarity Scores of Summaries per Speech Rate
+```{r figure-size, fig.width=6, fig.height=6}
+plot_glove_summary <- ggplot(average_similarity_summary, aes(x = factor(speech_rate), 
+                               y = average_similarity, 
+                               fill = as.factor(speech_rate))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7, fill = "green3") +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  labs(x = "Speech Rate", y= "Semantic Similarity\nScore") +
+  geom_text(aes(label = round(average_similarity, 2)), 
+            vjust = -0.5, position = position_dodge(width = 0.7), size = 6) +
+  geom_errorbar(aes(ymin = average_similarity - se, ymax = average_similarity + se), 
+                width = 0, position = position_dodge(width = 0.7)) + 
+  scale_y_continuous(breaks = c(0, 0.25, 0.5), limits = c(0, 0.5)) +  
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  
+        axis.text.y = element_text(size = 20), 
+        plot.title = element_text(size = 20, hjust = 0.5))
+
+plot_glove_summary
+```
+
+### Visualize single fixed effect regression models
+```{r figure-size, fig.width=6, fig.height=6 }
+visreg_summary <- visreg(model_glove1, "glove_sum_max_similarity_rescaled", gg=TRUE,    
+                         line=list(col="green3", size=1.7), points=list(alpha=0.5),
+                         xlab= "Semantic Similarity Score", 
+                         ylab= "Predicted Real-Time\nComprehension Score") +
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  # Adjust X-axis tick label size
+        axis.text.y = element_text(size = 20)) +  # Adjust Y-axis tick label size
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  # Set x-axis ticks at 0, 0.5, 1
+  scale_y_continuous(breaks = c(0, 0.5, 1)) 
+
+
+visreg_likert <- visreg(model_likert, "likert_rescaled", gg=TRUE,
+                        line=list(col="royalblue",size=1.7), points=list(alpha=0.5),
+                        xlab= "10-point Scale Response", 
+                        ylab= "") +
+theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  # Adjust X-axis tick label size
+        axis.text.y = element_text(size = 20)) +  # Adjust Y-axis tick label size
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  # Force x-axis to include 0, 0.5, 1
+  scale_y_continuous(breaks = c(0, 0.5, 1))
+
+
+visreg_multiple <- visreg(model_multiple_choice, "multiple_choice_accuracy", gg=TRUE,
+                          line=list(col="violetred", size=1.7), points=list(alpha=0.5),
+                          xlab= "Multiple Choice Accuracy", 
+                          ylab= "") +
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  # Adjust X-axis tick label size
+        axis.text.y = element_text(size = 20)) +  # Adjust Y-axis tick label size
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  # Set x-axis ticks at 0, 0.5, 1
+  scale_y_continuous(breaks = c(0, 0.5, 1))
+
+
+visreg_summary
+visreg_likert
+visreg_multiple
+```
+
+### Visualize regression models + Bar plots 
+```{r figure-size, fig.width=18, fig.height=14}
+# Create a multi-panel plot for 
+
+# Create title groups
+title1 <- textGrob("Summary", gp=gpar(fontsize=28, color='green3',fontface="bold"))
+title2 <- textGrob("10-Point Scale", gp=gpar(fontsize=28, color='royalblue', fontface="bold"))
+title3 <- textGrob("Multiple Choice Question", gp=gpar(fontsize=28,color='violetred', fontface="bold"))
+
+combined_plot_effects <- grid.arrange(
+  title1, title2, title3,
+  visreg_summary, visreg_likert, visreg_multiple,
+  plot_glove_summary, likert_plot, question_plot,
+  ncol = 3,
+  nrow = 4,
+  heights = unit.c(unit(4, "null"), unit(8, "null"), unit(2, "null"), unit(8, "null")),  # Adjust heights
+  layout_matrix = rbind(c(1, 2, 3), c(4, 5, 6), c(NA, NA, NA), c(7, 8, 9))
+)
+
+print(combined_plot_effects)
+```
+
+## All post-hoc measures as fixed effects in one regression model
+Now predict the novel measure's scores from all post-hoc comprehension measures to see if they can explain independent variance.
+
+```{r}
+model_all_glove1 <- lmer(trial_median_rescaled ~  
+                glove_sum_max_similarity_rescaled +
+                likert_rescaled + 
+                multiple_choice_accuracy + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+
+summary(model_all_glove1)
+```
+Ah, unlike just included participants, when they are all included in the model 
+only the liker scale is significant in predicting slider values- no
+independently explained varinance
+
+### Visualize the multiple fixed effects regression
+```{r figure-size, fig.width=15, fig.height=5 }
+
+visreg_summary_all <- visreg(model_all_glove1, "glove_sum_max_similarity_rescaled", 
+                             gg=TRUE,
+                          line=list(col="green3", size = 1.7), points=list(alpha=0.5),
+                       xlab= "Semantic Similarity Score", 
+                       ylab= "Predicted Real-Time\nComprehension Score") + 
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  
+        axis.text.y = element_text(size = 20)) +  
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  
+  scale_y_continuous(breaks = c(0, 0.5, 1))    
+
+# Update for visreg_likert
+visreg_likert_all <- visreg(model_all_glove1, "likert_rescaled", gg=TRUE,
+                        line=list(col="royalblue",size=1.7), points=list(alpha=0.5),
+                       xlab= "10-point Scale Response",
+                       ylab= NULL)+ 
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  
+        axis.text.y = element_text(size = 20)) +  
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  
+  scale_y_continuous(breaks = c(0, 0.5, 1))    
+
+# Update for visreg_multiple
+visreg_multiple_all <- visreg(model_all_glove1, "multiple_choice_accuracy", gg=TRUE,
+                           line=list(col="violetred", size=1.7), points=list(alpha=0.5),
+                       xlab= "Multiple Choice Accuracy", 
+                       ylab= NULL) +
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  
+        axis.text.y = element_text(size = 20)) +  
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  
+  scale_y_continuous(breaks = c(0, 0.5, 1))    
+
+# Arrange plots in a grid
+grid.arrange(
+  arrangeGrob(
+    visreg_summary_all, visreg_likert_all, visreg_multiple_all, 
+    ncol = 3
+  ) 
+)
+
+
+# For random slopes 
+visreg_wm <- visreg(model_all_glove1, "digit_span_score", gg=TRUE,
+                       xlab= "Working Memory Scores", 
+                       ylab= NULL) 
+  #scale_y_continuous(breaks = c(1, 2, 3, 4, 5), limits = c(1, 5))
+
+visreg_hearing <- visreg(model_all_glove1, "digit_in_noise_score", gg=TRUE,
+                       xlab= "Hearing In Noise", 
+                       ylab= NULL)
+  #scale_y_continuous(breaks = c(1, 2, 3, 4, 5), limits = c(1, 5))
+  
+
+# put them in a grid
+grid.arrange(
+  arrangeGrob(
+   visreg_wm, visreg_hearing,
+    ncol = 2,
+    left = textGrob(" Predicted real-time comprehension scores 
+                    given the post-hoc measures", 
+                    rot = 90, vjust = 1.5)
+  ) 
+)
+```
+
+## Figure: Single fixed-effect regressions + bar plots + multiple fixed-effect regression
+```{r figure-size, fig.width=18, fig.height=22}
+# all 3 plots in the same grid
+# Create title groups
+title1 <- textGrob("Summary", gp=gpar(fontsize=28, 
+                                      color='green3',
+                                      fontface="bold"))
+title2 <- textGrob("10-Point Scale", gp=gpar(fontsize=28, 
+                                             color='royalblue', 
+                                             fontface="bold"))
+title3 <- textGrob("Multiple Choice Question", gp=gpar(fontsize=28,
+                                                       color='violetred', 
+                                                       fontface="bold"))
+
+combined_plot_effects <- grid.arrange(
+  title1, title2, title3,
+  visreg_summary, visreg_likert, visreg_multiple,
+  plot_glove_summary, likert_plot, question_plot,
+  visreg_summary_all, visreg_likert_all, visreg_multiple_all,
+  ncol = 3,
+  nrow = 6,
+  heights = unit.c(
+    unit(4, "null"),  # Title row
+    unit(8, "null"),  # First row of plots
+    unit(2, "null"),  # Spacer row
+    unit(8, "null"),  # Second row of plots
+    unit(2, "null"),  # Spacer row (optional)
+    unit(8, "null")   # Third row of plots
+  ),
+  layout_matrix = rbind(
+    c(1, 2, 3),
+    c(4, 5, 6),
+    c(NA, NA, NA),
+    c(7, 8, 9),
+    c(NA, NA, NA),
+    c(10, 11, 12)
+  )
+)
+
+
+print(combined_plot_effects)
+```
+## Predicting real time comprehension from speech rate 
+Does comprehension change with Speech Rate?
+
+```{r}
+model_rate <- lmer(speech_rate ~ 
+                trial_median_rescaled +
+                glove_sum_max_similarity_rescaled +
+                likert_rescaled + 
+                multiple_choice_accuracy + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+
+summary(model_rate)
+```
+
+### Figure: Estimates of fixed effects (comprehension measures) on Speech Rate
+```{r}
+# Extract the fixed effects from the model (including confidence intervals)
+fixed_effects <- tidy(model_rate, effects = "fixed", conf.int = TRUE)
+
+# Filter out the intercept term
+fixed_effects <- fixed_effects %>%
+  filter(term != "(Intercept)")
+
+# Map the actual terms to custom axis labels
+term_mapping <- c(
+  "multiple_choice_accuracy" = "Multiple Choice Question Accuracy",
+  "glove_sum_max_similarity_rescaled" = "Summary Semantic Similarity",
+  "likert_rescaled" = "10-Point Scale",
+  "trial_median_rescaled" = "Median Real-Time Comprehension"
+)
+
+# Replace the term names with custom labels
+fixed_effects <- fixed_effects %>%
+  mutate(term = recode(term, !!!term_mapping))
+
+# Reorder the terms based on the estimate values in descending order
+fixed_effects <- fixed_effects %>%
+  mutate(term = reorder(term, -estimate))
+
+# Add a column for significance stars based on p-values
+fixed_effects <- fixed_effects %>%
+  mutate(sig_stars = case_when(
+    p.value < 0.001 ~ "***",
+    p.value < 0.01 ~ "**",
+    p.value < 0.05 ~ "*",
+    TRUE ~ ""
+  ))
+
+# Plot with ggplot2 - swapped x and y axes
+ggplot(fixed_effects, aes(y = term, x = estimate)) +  # Swapped axes
+  geom_point(aes(color = term), size = 3) +  # Add color to the points
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high, color = term), 
+                 height = 0, 
+                 width = 0) +  
+  geom_text(aes(label = paste0(round(estimate, 2), sig_stars)), vjust = -1, size = 4) +  
+  scale_color_manual(values = c(
+    "Multiple Choice Question Accuracy" = "violetred",
+    "10-Point Scale" = "royalblue",
+    "Summary Semantic Similarity" = "green3",
+    "Median Real-Time Comprehension" = "purple"
+  )) + 
+  labs(title = " ",
+       x = "Regression Coefficient Estimates",
+       y = NULL) +  
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18),  
+    axis.title.x = element_text(size = 13),              
+    axis.text.y = element_text(size = 13, color = "black"),  
+    axis.text.x = element_text(size = 12) 
+  ) + 
+  guides(color = "none") 
+
+```
+Multiple choice accuracy is not significant anymore, unlike in just included participants
+
+# ALL PARTICIPANTS (Excluded + Included)
+
+First, load and merge excluded and included participant's data
+```{r}
+# excluded participants' data
+df_exc <- read.csv("/Users/irmakergin/Desktop/supplamentary/data/df_semantic.csv")
+# included participants' daha
+df_inc <- read.csv("/Users/irmakergin/Desktop/supplamentary/data/df_semantic_included.csv")
+
+# Check number of columns
+if (ncol(df_exc) != ncol(df_inc)) {
+  cat("Column number mismatch:\n",
+      "df_exc has", ncol(df_exc), "columns, df_inc has", ncol(df_inc), "columns\n")
+}
+
+# Check column names
+if (!identical(names(df_exc), names(df_inc))) {
+  cat(" Column name mismatch:\n")
+  cat("In df_exc not in df_inc:", setdiff(names(df_exc), names(df_inc)), "\n")
+  cat("In df_inc not in df_exc:", setdiff(names(df_inc), names(df_exc)), "\n")
+} else {
+  cat("Column numbers and names match")
+}
+
+# Reorder df_inc columns to match df_exc
+df_inc <- df_inc[ , names(df_exc)]
+
+# Now names match exactly
+identical(names(df_exc), names(df_inc))
+```
+```{r}
+# Common columns
+common <- intersect(names(df_exc), names(df_inc))
+
+# Capture full class (handles cases like c("POSIXct","POSIXt"))
+type_exc <- sapply(common, function(nm) paste(class(df_exc[[nm]]), collapse = "/"))
+type_inc <- sapply(common, function(nm) paste(class(df_inc[[nm]]), collapse = "/"))
+
+# Find and print mismatches only
+mismatch <- type_exc != type_inc
+out <- data.frame(
+  column = common[mismatch],
+  type_in_df_exc = type_exc[mismatch],
+  type_in_df_inc = type_inc[mismatch],
+  stringsAsFactors = FALSE
+)
+
+if (nrow(out)) {
+  print(out, row.names = FALSE)
+} else {
+  cat("No type mismatches among common columns.\n")
+}
+
+```
+```{r}
+# Convert mismatched columns in df_exc to numeric
+df_exc$duration        <- as.numeric(gsub(",", ".", 
+                                          as.character(df_exc$duration)))
+df_exc$likert_response <- as.numeric(gsub(",", ".", 
+                                          as.character(df_exc$likert_response)))
+df_exc$likert_rescaled <- as.numeric(gsub(",", ".", 
+                                          as.character(df_exc$likert_rescaled)))
+
+# Check the classes after conversion
+sapply(df_exc[c("duration", "likert_response", "likert_rescaled")], class)
+```
+
+```{r}
+df.data <- bind_rows(df_exc, df_inc)
+# save as csv file
+write.csv(df.data,
+          "/Users/irmakergin/Desktop/supplamentary/data/df_semantic_merged.csv",
+          row.names = FALSE)
+```
+
+Define list of participant id's
+```{r}
+# Define the list of participant IDs
+participant_ids <- c("p_1","p_2","p_3","p_4","p_5","p_6","p_7","p_8","p_9",
+                     "p_10","p_11","p_12","p_13","p_14","p_15","p_16","p_17",
+                     "p_18","p_19","p_20","p_21","p_22","p_23","p_24","p_25",
+                     "p_26","p_27","p_28","p_29","p_30")
+```
+
+## I. Semantic Similarity
+### How many words did included participants write in their summaries on average?
+
+```{r}
+# select only included participants
+exc_participant_ids <- c("p_2","p_6","p_12","p_16","p_20","p_23","p_26","p_27")
+df.data_inc <- df.data %>%
+  filter(!participant %in% exc_participant_ids)
+
+# on average, across speech rates
+df.data_inc <- df.data_inc %>%
+  mutate(
+    summary_text = textbox.text_corrected_manual,
+    summary_text = ifelse(is.na(summary_text), "", summary_text),
+    summary_text = stringr::str_squish(summary_text),
+    word_count   = ifelse(summary_text == "", NA_integer_,
+                          stringr::str_count(summary_text, "\\S+"))
+  )
+overall_avg_inc <- df.data_inc %>%
+  summarise(
+    mean_words = round(mean(word_count, na.rm = TRUE),2),
+    n_summaries = round(sum(!is.na(word_count)),2),
+    total_words = round(sum(word_count, na.rm = TRUE),2)
+  )
+
+overall_avg_inc
+```
+
+```{r}
+# on average, per speech rate
+by_rate_inc <- df.data_inc %>%
+  group_by(speech_rate) %>%
+  summarise(
+    mean_words = round(mean(word_count, na.rm = TRUE),2),
+    sd_words   = round(sd(word_count, na.rm = TRUE),2),
+    n_summaries = round(sum(!is.na(word_count)),2),
+    total_words = round(sum(word_count, na.rm = TRUE),2),
+    .groups = "drop"
+  ) %>%
+  arrange(suppressWarnings(as.numeric(as.character(speech_rate))))
+
+by_rate_inc
+```
+#### Excluded vs Included participants' word counts:
+
+Excluded participants reported 14.13 words per summary on average, whereas
+included participants reported 18.99.
+For the slowest condition, excluded participants reported 19.35 words on avg,
+included participants 26.15.
+sr2: 17.60 vs 24.81
+sr3: 14.41 vs 22.57
+sr4: 7.47 vs 9.86
+sr5: 4.42 vs 5.92
+
+Which semantic similarity analysis explains comprehension better?
+
+### Visualization
+First, let's visualize all 3 to see if they show the same pattern:
+
+```{r figure-size, fig.width=9, fig.height=5}
+
+# GloVe - Written Summary
+average_similarity_summary <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(
+    average_similarity = mean(glove_sum_max_similarity_rescaled, na.rm = TRUE),
+    sd = sd(glove_sum_max_similarity_rescaled, na.rm = TRUE),
+    n = n(),
+    se = sd / sqrt(n)  # standard error
+  )
+
+
+# GloVe - Heard Segment
+average_similarity_text <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(
+    average_similarity = mean(glove_text_average_max_similarity, na.rm = TRUE),
+    sd = sd(glove_text_average_max_similarity, na.rm = TRUE),
+    n = n(),
+    se = sd / sqrt(n)  # standard error
+  )
+
+# BERT 
+average_similarity_bert <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(
+    average_similarity = mean(bert_cosine_similarity, na.rm = TRUE),
+    sd = sd(bert_cosine_similarity, na.rm = TRUE),
+    n = n(),
+    se = sd / sqrt(n)  # standard error
+  )
+
+
+# Create the plots without x and y labels
+plot_glove_summary <- ggplot(average_similarity_summary, aes(x = factor(speech_rate), 
+                               y = average_similarity, 
+                               fill = as.factor(speech_rate))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7, fill = "green3") +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  labs(x = NULL, y= NULL, 
+       title = "GloVe- Written Summary") +
+  geom_text(aes(label = round(average_similarity, 2)), 
+            vjust = -1, position = position_dodge(width = 0.7), size = 3) +
+  geom_errorbar(aes(ymin = average_similarity - se, ymax = average_similarity + se), 
+                width = 0, position = position_dodge(width = 0.7)) + 
+  theme(axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        plot.title = element_text(size = 13, hjust = 0.5))
+
+plot_glove_text <- ggplot(average_similarity_text, aes(x = factor(speech_rate), 
+                               y = average_similarity, 
+                               fill = as.factor(speech_rate))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7, fill = "darkseagreen2") +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  labs(x = NULL, y = NULL, 
+       title = "GloVe - Heard Segment") +
+  geom_text(aes(label = round(average_similarity, 2)), 
+            vjust = -1, position = position_dodge(width = 0.7), size = 3) +
+  geom_errorbar(aes(ymin = average_similarity - se, ymax = average_similarity + se), 
+                width = 0,position = position_dodge(width = 0.7)) +
+  theme(plot.title = element_text(size = 13, hjust = 0.5))
+
+# Adjust the plot for BERT without individual axis labels
+plot_bert <- ggplot(average_similarity_bert, aes(x = factor(speech_rate), 
+                               y = average_similarity, 
+                               fill = as.factor(speech_rate))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7, fill = "darkseagreen3") +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  labs(x = NULL, y = NULL, 
+       title = "BERT") +
+  geom_text(aes(label = round(average_similarity, 2)), 
+            vjust = -1.2, position = position_dodge(width = 0.7), size = 3) +
+  geom_errorbar(aes(ymin = average_similarity - se, ymax = average_similarity + se), 
+                width = 0, position = position_dodge(width = 0.7)) +
+  theme(plot.title = element_text(size = 13, hjust = 0.5))
+
+#put them in a grid 
+grid.arrange(
+  arrangeGrob(
+  plot_glove_summary,plot_glove_text, plot_bert, 
+    ncol = 3,
+    left = textGrob("Average Normalized Cosine Similarity Value", 
+                    rot = 90, vjust = 0.5),
+   bottom = textGrob("Speech Rate", 
+                    rot = 0, vjust = 0.5)
+  ) 
+)
+```
+### Correlation
+
+Do 3 different semantic similarity measures correlate with each other?
+```{r}
+# Subset the relevant columns
+semantic_columns <- df.data[, c("bert_cosine_similarity", 
+                                "glove_text_average_max_similarity", 
+                                "glove_sum_max_similarity_rescaled")]
+
+# Calculate the correlation matrix
+correlation_matrix <- cor(semantic_columns, use = "complete.obs")
+
+# Print 
+print(correlation_matrix)
+
+```
+Test if any of these correlations are statistically significant:
+```{r}
+# Correlation test between BERT and GloVe- Heard Segment
+test1 <- cor.test(df.data$bert_cosine_similarity, 
+                  df.data$glove_text_average_max_similarity)
+
+# Correlation test between BERT and GloVe- Written Summary
+test2 <- cor.test(df.data$bert_cosine_similarity, 
+                  df.data$glove_sum_max_similarity_rescaled)
+
+# Correlation test between GloVe- Heard Segment & GloVe- Written Summary
+test3 <- cor.test(df.data$glove_text_average_max_similarity,
+                  df.data$glove_sum_max_similarity_rescaled)
+
+print(test1)
+print(test2)
+print(test3)
+
+```
+
+### Comparison
+Which semantic similarity analysis method explains the most varience in comprehension?
+
+To see which if  semantic similarity scores explains variance in comprehension better than the others,we conducted a linear mixed model was conducted to predict the 10-Point Scale responses based on BERT, GloVe- Written Summary, and GloVe- Heard Segment. Random effects for digit span score and digit in noise score were included in the model.
+
+
+```{r}
+model_all<- lmer(likert_rescaled ~ 
+                 bert_cosine_similarity +   glove_text_average_max_similarity +   
+                   glove_sum_max_similarity_rescaled + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+#model_compare <- anova(model_g1, model_all)
+summary(model_all) 
+```
+All fixed effects are significant, as it was for just included participants. Glove- Written Summary has the highest t value and estimate as it was for just included and just excluded participants. Therefore, I will use/ report the GLoVe- written summary Segment for the rest of the analyses.   
+
+### Speech Rate 
+Are semantic similarity scores btw speech rates sig different from each other?
+
+#### Glove- Written Summary
+```{r}
+semantic.anova <- aov(glove_sum_max_similarity_rescaled ~ speech_rate, data = df.data)
+summary(semantic.anova)
+
+pairwise_results <- df.data %>% pairwise_t_test(
+    glove_sum_max_similarity_rescaled ~ speech_rate, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+pairwise_results
+```
+All significant except x1-x2 as it was for just included participants
+
+#### Glove- Heard Segment
+```{r}
+semantic.anova2 <- aov(glove_text_average_max_similarity ~ speech_rate, 
+                       data = df.data)
+summary(semantic.anova2)
+
+pairwise_results2 <- df.data %>% pairwise_t_test(
+    glove_text_average_max_similarity ~ speech_rate, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+pairwise_results2
+```
+All significant except x1-x2, x2 & x3 aare significant unlike in just included 
+
+#### BERT
+```{r}
+semantic.anova3 <- aov(bert_cosine_similarity ~ speech_rate, data = df.data)
+summary(semantic.anova3)
+
+pairwise_results3 <- df.data %>% pairwise_t_test(
+    bert_cosine_similarity ~ speech_rate, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+pairwise_results3
+```
+inc + exc: included particiapants: All significant except x1-x2 & x2-x3
+included particiapants: All significant except x2-x3
+
+### Recency Effect
+Is there a recency effect in summaries that participants wrote?
+
+#### Glove- Written Summary
+```{r}
+# First, make sure that the right ones are NA, right now NAs are also 0
+df.data <- df.data %>%
+  mutate(
+    rescaled_glove_bin1 = ifelse(textbox.text_corrected_manual == "", 
+                                 NA, rescaled_glove_bin1),
+    rescaled_glove_bin2 = ifelse(textbox.text_corrected_manual == "", 
+                                 NA, rescaled_glove_bin2),
+    rescaled_glove_bin3 = ifelse(textbox.text_corrected_manual == "", 
+                                 NA, rescaled_glove_bin3),
+    rescaled_glove_bin4 = ifelse(textbox.text_corrected_manual == "", 
+                                 NA, rescaled_glove_bin4),
+    rescaled_glove_bin5 = ifelse(textbox.text_corrected_manual == "", 
+                                 NA, rescaled_glove_bin5)
+  )
+
+# Create a long dataset for bins and scores
+df.bin <- df.data %>%
+  select(participant, index, speech_rate, segment_text, textbox.text_corrected_manual, 
+         glove_bin1, glove_bin2, glove_bin3, glove_bin4, glove_bin5) %>%
+  pivot_longer(cols = starts_with("glove_bin"), 
+               names_to = "bin", 
+               names_prefix = "glove_bin", 
+               values_to = "semantic_score") %>%
+  mutate(bin = as.integer(bin)) %>%
+  arrange(participant, index, bin)
+
+# If a recency effect ->  latter bins should be recalled better than earlier ones
+binned.anova <- aov(semantic_score ~ speech_rate * bin, data = df.bin)
+summary(binned.anova)
+
+df.bin_factor = df.bin %>%
+  mutate(speech_bin = factor(paste(speech_rate, bin, sep="_")))
+
+# pairwise comparison
+df.bin_factor %>% pairwise_t_test(
+   semantic_score ~ speech_bin, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+```
+
+#### Glove- Heard Segment
+```{r}
+# First, make sure that the right ones are NA, right now NAs are also 0
+
+df.data <- df.data %>%
+  mutate(
+    glove2_bin1 = ifelse(textbox.text_corrected_manual == "", NA, glove2_bin1),
+    glove2_bin2 = ifelse(textbox.text_corrected_manual == "", NA, glove2_bin2),
+    glove2_bin3 = ifelse(textbox.text_corrected_manual == "", NA, glove2_bin3),
+    glove2_bin4 = ifelse(textbox.text_corrected_manual == "", NA, glove2_bin4),
+    glove2_bin5 = ifelse(textbox.text_corrected_manual == "", NA, glove2_bin5)
+  )
+
+# Create a long dataset for bins and scores 
+df.bin_glove2 <- df.data %>%
+  select(participant, index, speech_rate, segment_text, textbox.text_corrected_manual, 
+         glove2_bin1, glove2_bin2, glove2_bin3, glove2_bin4, glove2_bin5) %>%
+  pivot_longer(cols = starts_with("glove2_bin"), 
+               names_to = "bin", 
+               names_prefix = "glove2_bin", 
+               values_to = "glove2_score") %>%
+  mutate(bin = as.integer(bin)) %>%
+  arrange(participant, index, bin)
+
+# If a recency effect ->  latter bins should be recalled better than earlier ones
+
+binned.anova2 <- aov(glove2_score ~ speech_rate * bin, data = df.bin_glove2)
+summary(binned.anova2)
+
+df.bin_factor = df.bin_glove2 %>%
+  mutate(speech_bin = factor(paste(speech_rate, bin, sep="_")))
+
+# pairwise comparison
+df.bin_factor %>% pairwise_t_test(
+   glove2_score ~ speech_bin, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+```
+
+#### BERT
+```{r}
+# Create a long dataset for bins and scores for BERT
+df.bin_bert <- df.data %>%
+  select(participant, index, speech_rate, segment_text, textbox.text_corrected_manual, 
+         cosine_similarity_bin1, 
+         cosine_similarity_bin2, 
+         cosine_similarity_bin3, 
+         cosine_similarity_bin4, 
+         cosine_similarity_bin5) %>%
+  pivot_longer(cols = starts_with("cosine_similarity_bin"), 
+               names_to = "bin", 
+               names_prefix = "cosine_similarity_bin", 
+               values_to = "bert_score") %>%
+  mutate(bin = as.integer(bin)) %>%
+  arrange(participant, index, bin)
+
+binned.anova_bert <- aov(bert_score ~ speech_rate * bin, data = df.bin_bert)
+summary(binned.anova_bert)
+
+df.bin_bert_factor = df.bin_bert %>%
+  mutate(speech_bin = factor(paste(speech_rate, bin, sep="_")))
+
+# pairwise comparison
+df.bin_bert_factor %>% pairwise_t_test(
+   bert_score ~ speech_bin, pool.sd = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+```
+
+There is a main effect of Speech Rate for all 3, main effect of binning (recency) only for GloVe- Heard Summary & BERT, as it was for just included and just excluded.
+
+## II. Validation
+Can we predict the scores of our novel comprehension measure from the existing post-hoc comprehension measures?
+
+### Each measure as a fixed effect in seperate models
+
+#### 10-Point Scale Ratings
+
+```{r}
+# Calculate median trial movements for each trial
+
+df.data <- df.data %>%
+  mutate(
+    slider_values_numeric = str_split(slider_values_rescaled, ",") %>%
+      map(~ as.numeric(.x))
+  )
+
+# Mean and median slider values for each trial
+df.data <- df.data %>%
+  rowwise() %>%
+  mutate(trial_mean_rescaled = mean(unlist(slider_values_numeric), na.rm = TRUE),
+         trial_median_rescaled = median(unlist(slider_values_numeric), na.rm = TRUE)) %>%
+  ungroup()
+```
+
+```{r}
+model_likert<- lmer(trial_median_rescaled ~ 
+                likert_rescaled + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+
+summary(model_likert)
+```
+##### variance explained by the fixed effect (partial r2)
+The proportion of variance explain uniquely by the predictor relative to total
+variance
+```{r}
+res_likert <- partR2(model_likert, 
+              partvars = "likert_rescaled", 
+              data = df.data, 
+              R2_type = "marginal")
+res_likert
+
+```
+0.8% - partial R2= 0.78 
+
+
+Cohen's f2
+```{r}
+ 
+mf <- model.frame(model_likert, na.action = na.omit)
+model_clean <- lmer(formula(model_likert), data = mf, REML = lme4::isREML(model_likert))
+
+## 1) Marginal R^2 and Cohen's f^2 (for the single fixed effect)
+r2 <- r.squaredGLMM(model_clean)
+R2_m <- as.numeric(r2[1])                 # fixed-effects R^2
+f2   <- R2_m / (1 - R2_m)                 # Cohen's f^2
+
+## 2) Partial R^2 for likert_rescaled
+# With one fixed effect, partial R^2 == marginal R^2:
+PR2_likert <- R2_m
+
+## 3) Standardized coefficient (β): z-score both y and x
+mf$y_z <- scale(mf$trial_median_rescaled)
+mf$x_z <- scale(mf$likert_rescaled)
+mod_std <- lmer(y_z ~ x_z + 
+                  (1 | digit_span_score) + 
+                  (1 | digit_in_noise_score),
+                data = mf)
+beta_std <- fixef(mod_std)["x_z"]
+
+## Pretty print
+cat(sprintf("Marginal R^2 (fixed effects): %.3f\n", R2_m))
+cat(sprintf("Cohen's f^2: %.3f\n", f2))
+cat(sprintf("Partial R^2 for likert_rescaled: %.3f\n", PR2_likert))
+```
+
+
+##### Visualize 10-Point Scale Ratings per Sepeech Speed
+```{r figure-size, fig.width=6, fig.height=6 }
+
+# Calculate the average 10-point scale scores per speech_rate category
+average_score_likert <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(average_likert = mean(likert_rescaled, na.rm = TRUE),
+            sd = sd(likert_rescaled, na.rm = TRUE),
+            n = n(),
+            se = sd / sqrt(n)  # standard error
+  )
+
+# Plot
+likert_plot <- ggplot(average_score_likert, aes(x = factor(speech_rate), 
+                                                y = average_likert)) +
+  geom_bar(stat = "identity", width = 0.7, fill = "royalblue") +   
+  labs(x = "Speech Rate", y = "10-Point Scale Response") +
+  geom_text(aes(label = round(average_likert, 2)), vjust = -0.2, size = 6) +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  geom_errorbar(aes(ymin = average_likert - se, ymax = average_likert + se), 
+                width = 0, position = position_dodge(width = 0.5)) +  
+  scale_y_continuous(breaks = c(0, 0.25, 0.50)) + 
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20), 
+        axis.text.y = element_text(size = 20))  
+
+print(likert_plot)
+```
+
+#### Multiple Choice Quesitons
+```{r}
+model_multiple_choice<- lmer(trial_median_rescaled ~ 
+                multiple_choice_accuracy + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+
+summary(model_multiple_choice)
+```
+Nice, still significant! 
+
+##### variance explained by the fixed effect (partial r2)
+The proportion of variance explain uniquely by the predictor relative to total
+variance
+```{r}
+res_mcq <- partR2(model_multiple_choice, 
+              partvars = "multiple_choice_accuracy", 
+              data = df.data, 
+              R2_type = "marginal")
+res_mcq
+
+```
+partial R2= 0.10
+
+Cohen's f2
+```{r}
+## 1) Marginal R^2 (fixed effects) + Cohen's f^2
+r2 <- r.squaredGLMM(model_multiple_choice)
+R2_m <- as.numeric(r2[1])                # marginal R^2
+f2   <- R2_m / (1 - R2_m)                # Cohen's f^2
+
+## 2) Partial R^2 for the single fixed effect (equals marginal R^2)
+PR2_mcq <- R2_m
+
+## 3) Standardized beta (ΔSD_y per 1 SD_x)
+df.data$y_z <- scale(df.data$trial_median_rescaled)
+df.data$x_z <- scale(df.data$multiple_choice_accuracy)
+mod_std <- lmer(y_z ~ x_z +
+                  (1 | digit_span_score) +
+                  (1 | digit_in_noise_score),
+                data = df.data)
+beta_std <- fixef(mod_std)["x_z"]
+
+## 4) (Optional) Semi-standardized beta: SD(y) per 1 raw-unit of x
+mod_semistd <- lmer(y_z ~ multiple_choice_accuracy +
+                      (1 | digit_span_score) +
+                      (1 | digit_in_noise_score),
+                    data = df.data)
+beta_semistd <- fixef(mod_semistd)["multiple_choice_accuracy"]
+
+## Pretty print
+cat(sprintf(
+  "Marginal R^2: %.3f\nCohen's f^2: %.3f\nPartial R^2: %.3f",
+  R2_m, f2, PR2_mcq
+))
+```
+
+##### Visualize Multiple Choice Quesitons per Speech Rate
+```{r figure-size, fig.width=6, fig.height=6 }
+# Calculate the average multiple_choice_accuracy scores per speech_rate category
+average_scores <- df.data %>%
+  group_by(speech_rate) %>%
+  summarise(average_accuracy = mean(multiple_choice_accuracy, na.rm = TRUE),
+            sd = sd(multiple_choice_accuracy, na.rm = TRUE),
+            n = n(),
+            se = sd / sqrt(n)  # standard error
+  )
+
+question_plot <- ggplot(average_scores, aes(x = factor(speech_rate), y = average_accuracy)) +
+  geom_bar(stat = "identity", width = 0.7, fill = "violetred") +   
+  labs(x = "Speech Rate", y = "Multiple Choice Accuracy") +
+  geom_text(aes(label = round(average_accuracy, 2)), vjust = -0.5, size = 6) +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  geom_errorbar(aes(ymin = average_accuracy - se, ymax = average_accuracy + se), 
+                width = 0, position = position_dodge(width = 0.5)) +
+  # Add dashed line at chance level:
+  geom_hline(yintercept = 0.25, linetype = "dashed", color = "black", size=1.5) +  
+  scale_y_continuous(breaks = c(0, 0.25, 0.5)) +  
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  
+        axis.text.y = element_text(size = 20))  
+
+print(question_plot)
+```
+
+#### Summary
+```{r}
+# Summary- GloVe- Written Summary
+model_glove1<- lmer(trial_median_rescaled ~ 
+                glove_sum_max_similarity_rescaled + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+
+summary(model_glove1)
+```
+##### variance explained by the fixed effect (partial r2)
+The proportion of variance explain uniquely by the predictor relative to total
+variance
+```{r}
+res_sem <- partR2(model_glove1, 
+              partvars = "glove_sum_max_similarity_rescaled", 
+              data = df.data, 
+              R2_type = "marginal")
+res_sem
+
+```
+partial r2= 0.41
+
+
+Cohen's f2
+```{r}
+## 1) Marginal R^2 (fixed effects) + Cohen's f^2
+r2 <- r.squaredGLMM(model_glove1)
+R2_m <- as.numeric(r2[1])                # marginal R^2
+f2   <- R2_m / (1 - R2_m)                # Cohen's f^2
+
+## 2) Partial R^2 (same as marginal R^2 with one fixed effect)
+PR2_glove <- R2_m
+
+## 3) Standardized beta (ΔSD_y per 1 SD_x)
+df.data$y_glove_z <- scale(df.data$trial_median_rescaled)
+df.data$x_glove_z <- scale(df.data$glove_sum_max_similarity_rescaled)
+mod_std_glove <- lmer(y_glove_z ~ x_glove_z +
+                        (1 | digit_span_score) +
+                        (1 | digit_in_noise_score),
+                      data = df.data)
+
+## 4) (Optional) Semi-standardized beta: SD(y) per 1 raw-unit of glove predictor
+mod_semistd_glove <- lmer(y_glove_z ~ glove_sum_max_similarity_rescaled +
+                            (1 | digit_span_score) +
+                            (1 | digit_in_noise_score),
+                          data = df.data)
+
+##  print
+cat(sprintf(
+  "Marginal R^2: %.3f\nCohen's f^2: %.3f\nPartial R^2: %.3f",
+  R2_m, f2, PR2_glove
+))
+
+```
+
+Note: Marginal vs Partial R2
+Marginal: How much variance all fixed effects together explain in the mixed model 
+(random‐effect held constant).
+How much variance a single fixed effect uniquely explains beyond the other fixed 
+effects, with the random structure held constant.
+So with an only 1-fixed effect in the model marginal r2= partial r2
+
+##### Visualize Semantic Simlarity Scores of Summaries per Speech Rate
+```{r figure-size, fig.width=6, fig.height=6}
+plot_glove_summary <- ggplot(average_similarity_summary, aes(x = factor(speech_rate), 
+                               y = average_similarity, 
+                               fill = as.factor(speech_rate))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7, fill = "green3") +
+  scale_x_discrete(labels = function(x) paste0("x ", x)) +
+  labs(x = "Speech Rate", y= "Semantic Similarity\nScore") +
+  geom_text(aes(label = round(average_similarity, 2)), 
+            vjust = -0.5, position = position_dodge(width = 0.7), size = 6) +
+  geom_errorbar(aes(ymin = average_similarity - se, ymax = average_similarity + se), 
+                width = 0, position = position_dodge(width = 0.7)) + 
+  scale_y_continuous(breaks = c(0, 0.25, 0.5), limits = c(0, 0.5)) +  
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  
+        axis.text.y = element_text(size = 20), 
+        plot.title = element_text(size = 20, hjust = 0.5))
+
+plot_glove_summary
+```
+
+### Visualize single fixed effect regression models
+```{r figure-size, fig.width=6, fig.height=6 }
+visreg_summary <- visreg(model_glove1, "glove_sum_max_similarity_rescaled", gg=TRUE,    
+                         line=list(col="green3", size=1.7), points=list(alpha=0.5),
+                         xlab= "Semantic Similarity Score", 
+                         ylab= "Predicted Real-Time\nComprehension Score") +
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  # Adjust X-axis tick label size
+        axis.text.y = element_text(size = 20)) +  # Adjust Y-axis tick label size
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  # Set x-axis ticks at 0, 0.5, 1
+  scale_y_continuous(breaks = c(0, 0.5, 1)) 
+
+
+visreg_likert <- visreg(model_likert, "likert_rescaled", gg=TRUE,
+                        line=list(col="royalblue",size=1.7), points=list(alpha=0.5),
+                        xlab= "10-point Scale Response", 
+                        ylab= "") +
+theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  # Adjust X-axis tick label size
+        axis.text.y = element_text(size = 20)) +  # Adjust Y-axis tick label size
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  # Force x-axis to include 0, 0.5, 1
+  scale_y_continuous(breaks = c(0, 0.5, 1))
+
+
+visreg_multiple <- visreg(model_multiple_choice, "multiple_choice_accuracy", gg=TRUE,
+                          line=list(col="violetred", size=1.7), points=list(alpha=0.5),
+                          xlab= "Multiple Choice Accuracy", 
+                          ylab= "") +
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  # Adjust X-axis tick label size
+        axis.text.y = element_text(size = 20)) +  # Adjust Y-axis tick label size
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  # Set x-axis ticks at 0, 0.5, 1
+  scale_y_continuous(breaks = c(0, 0.5, 1))
+
+
+visreg_summary
+visreg_likert
+visreg_multiple
+```
+
+### Visualize regression models + Bar plots 
+```{r figure-size, fig.width=18, fig.height=14}
+# Create a multi-panel plot for 
+
+# Create title groups
+title1 <- textGrob("Summary", gp=gpar(fontsize=28, color='green3',fontface="bold"))
+title2 <- textGrob("10-Point Scale", gp=gpar(fontsize=28, color='royalblue', fontface="bold"))
+title3 <- textGrob("Multiple Choice Question", gp=gpar(fontsize=28,color='violetred', fontface="bold"))
+
+combined_plot_effects <- grid.arrange(
+  title1, title2, title3,
+  visreg_summary, visreg_likert, visreg_multiple,
+  plot_glove_summary, likert_plot, question_plot,
+  ncol = 3,
+  nrow = 4,
+  heights = unit.c(unit(4, "null"), unit(8, "null"), unit(2, "null"), unit(8, "null")),  # Adjust heights
+  layout_matrix = rbind(c(1, 2, 3), c(4, 5, 6), c(NA, NA, NA), c(7, 8, 9))
+)
+
+print(combined_plot_effects)
+```
+
+## All post-hoc measures as fixed effects in one regression model
+Now predict the novel measure's scores from all post-hoc comprehension measures to see if they can explain independent variance.
+
+```{r}
+model_all_glove1 <- lmer(trial_median_rescaled ~  
+                glove_sum_max_similarity_rescaled +
+                likert_rescaled + 
+                multiple_choice_accuracy + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+
+summary(model_all_glove1)
+```
+Same as just inc and just exc, multiple choice is now not significant
+
+Correlation between predictors:
+```{r}
+cor(df.data[, c("glove_sum_max_similarity_rescaled", 
+                "likert_rescaled", 
+                "multiple_choice_accuracy")], use = "complete.obs")
+
+```
+##### variance explained
+```{r}
+library(lme4)
+library(MuMIn)
+
+cohens_f2_lmer <- function(mod, digits = 3) {
+  stopifnot(inherits(mod, "lmerMod"))
+
+  # Use the exact rows the model used (avoid NA mismatches)
+  mf <- model.frame(mod, na.action = na.omit)
+  mod_clean <- lmer(formula(mod), data = mf, REML = lme4::isREML(mod))
+
+  # Pieces
+  resp         <- as.character(formula(mod_clean))[2]
+  fixed_terms  <- attr(terms(mod_clean), "term.labels")         # fixed-only labels
+  rand_terms   <- lme4::findbars(formula(mod_clean))            # random terms
+
+  # Keep random effects in all reduced models
+  rand_str <- if (length(rand_terms)) {
+    vapply(rand_terms, function(x) paste0("(", deparse(x), ")"), character(1))
+  } else character(0)
+
+  # Model-level R^2 (marginal for fixed effects)
+  r2_full_vec <- r.squaredGLMM(mod_clean)
+  r2_full_m   <- as.numeric(r2_full_vec[1])   # Marginal R^2 (fixed effects)
+  r2_full_c   <- as.numeric(r2_full_vec[2])   # Conditional R^2 (fixed + random), FYI
+
+  # Build reduced models dropping ONE fixed term at a time
+  rows <- lapply(fixed_terms, function(trm) {
+    keep_fixed <- setdiff(fixed_terms, trm)
+    fixed_rhs  <- if (length(keep_fixed)) paste(keep_fixed, collapse = " + ") else "1"
+    rhs        <- paste(c(fixed_rhs, rand_str), collapse = " + ")
+    f_reduced  <- as.formula(paste(resp, "~", rhs))
+
+    m_red   <- lmer(f_reduced, data = mf, REML = lme4::isREML(mod_clean))
+    r2_red  <- as.numeric(r.squaredGLMM(m_red)[1])             # marginal R^2 of reduced
+    dR2     <- r2_full_m - r2_red                              # unique/semi-partial R^2
+    f2      <- if (is.finite(r2_full_m) && r2_full_m < 1) dR2 / (1 - r2_full_m) else NA_real_
+
+    data.frame(
+      Predictor     = trm,
+      Marginal_R2   = r2_full_m,    # same for all rows (model-level)
+      Partial_R2    = dR2,          # unique/semi-partial R^2 for this predictor
+      R2_reduced    = r2_red,       # for transparency
+      Cohen_f2      = f2,
+      stringsAsFactors = FALSE
+    )
+  })
+
+  out <- bind_rows(rows) |>
+    arrange(desc(Partial_R2)) |>
+    mutate(across(c(Marginal_R2, Partial_R2, R2_reduced, Cohen_f2),
+                  ~ round(., digits)))
+
+  # (optional) attach conditional R^2 as an attribute for reference
+  attr(out, "R2_conditional_model") <- round(r2_full_c, digits)
+  out
+}
+
+# ----- Use it -----
+f2_tbl <- cohens_f2_lmer(model_all_glove1, digits = 3)
+f2_tbl
+# View the model Conditional R^2 (optional):
+attr(f2_tbl, "R2_conditional_model")
+
+# Cohen (1988) benchmarks: small ~0.02, medium ~0.15, large ~0.35
+```
+
+### Visualize the multiple fixed effects regression
+```{r figure-size, fig.width=15, fig.height=5 }
+
+visreg_summary_all <- visreg(model_all_glove1, "glove_sum_max_similarity_rescaled", 
+                             gg=TRUE,
+                          line=list(col="green3", size = 1.7), 
+                          points=list(alpha=0.5),
+                       xlab= "Semantic Similarity Score", 
+                       ylab= "Predicted Real-Time\nComprehension Score") + 
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  
+        axis.text.y = element_text(size = 20)) +  
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  
+  scale_y_continuous(breaks = c(0, 0.5, 1))    
+
+# Update for visreg_likert
+visreg_likert_all <- visreg(model_all_glove1, "likert_rescaled", gg=TRUE,
+                        line=list(col="royalblue",size=1.7), points=list(alpha=0.5),
+                       xlab= "10-point Scale Response",
+                       ylab= NULL)+ 
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  
+        axis.text.y = element_text(size = 20)) +  
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  
+  scale_y_continuous(breaks = c(0, 0.5, 1))    
+
+# Update for visreg_multiple
+visreg_multiple_all <- visreg(model_all_glove1, "multiple_choice_accuracy", gg=TRUE,
+                           line=list(col="violetred", size=1.7), points=list(alpha=0.5),
+                       xlab= "Multiple Choice Accuracy", 
+                       ylab= NULL) +
+  theme(axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(size = 24),
+        axis.text.x = element_text(size = 20),  
+        axis.text.y = element_text(size = 20)) +  
+  scale_x_continuous(breaks = c(0, 0.5, 1)) +  
+  scale_y_continuous(breaks = c(0, 0.5, 1))    
+
+# Arrange plots in a grid
+grid.arrange(
+  arrangeGrob(
+    visreg_summary_all, visreg_likert_all, visreg_multiple_all, 
+    ncol = 3
+  ) 
+)
+
+
+# For random slopes 
+visreg_wm <- visreg(model_all_glove1, "digit_span_score", gg=TRUE,
+                       xlab= "Working Memory Scores", 
+                       ylab= NULL) 
+  #scale_y_continuous(breaks = c(1, 2, 3, 4, 5), limits = c(1, 5))
+
+visreg_hearing <- visreg(model_all_glove1, "digit_in_noise_score", gg=TRUE,
+                       xlab= "Hearing In Noise", 
+                       ylab= NULL)
+  #scale_y_continuous(breaks = c(1, 2, 3, 4, 5), limits = c(1, 5))
+  
+
+# put them in a grid
+grid.arrange(
+  arrangeGrob(
+   visreg_wm, visreg_hearing,
+    ncol = 2,
+    left = textGrob(" Predicted real-time comprehension scores 
+                    given the post-hoc measures", 
+                    rot = 90, vjust = 1.5)
+  ) 
+)
+```
+
+## Figure: Single fixed-effect regressions + bar plots + multiple fixed-effect regression
+```{r figure-size, fig.width=18, fig.height=22}
+# all 3 plots in the same grid
+# Create title groups
+title1 <- textGrob("Summary", gp=gpar(fontsize=28, 
+                                      color='green3',
+                                      fontface="bold"))
+title2 <- textGrob("10-Point Scale", gp=gpar(fontsize=28, 
+                                             color='royalblue', 
+                                             fontface="bold"))
+title3 <- textGrob("Multiple Choice Question", gp=gpar(fontsize=28,
+                                                       color='violetred', 
+                                                       fontface="bold"))
+
+combined_plot_effects <- grid.arrange(
+  title1, title2, title3,
+  visreg_summary, visreg_likert, visreg_multiple,
+  plot_glove_summary, likert_plot, question_plot,
+  visreg_summary_all, visreg_likert_all, visreg_multiple_all,
+  ncol = 3,
+  nrow = 6,
+  heights = unit.c(
+    unit(4, "null"),  # Title row
+    unit(8, "null"),  # First row of plots
+    unit(2, "null"),  # Spacer row
+    unit(8, "null"),  # Second row of plots
+    unit(2, "null"),  # Spacer row (optional)
+    unit(8, "null")   # Third row of plots
+  ),
+  layout_matrix = rbind(
+    c(1, 2, 3),
+    c(4, 5, 6),
+    c(NA, NA, NA),
+    c(7, 8, 9),
+    c(NA, NA, NA),
+    c(10, 11, 12)
+  )
+)
+
+
+print(combined_plot_effects)
+```
+## Predicting real time comprehension from speech rate 
+Does comprehension change with Speech Rate?
+
+```{r}
+model_rate <- lmer(speech_rate ~ 
+                trial_median_rescaled +
+                glove_sum_max_similarity_rescaled +
+                likert_rescaled + 
+                multiple_choice_accuracy + 
+                (1 | digit_span_score) + 
+                (1 | digit_in_noise_score), data = df.data)
+
+summary(model_rate)
+```
+
+Multiple choice accuracy is not significant, like in just excluded participants,
+unlike in just included participants.
+
+Are the predictors (especially likert and real time comp) significantly 
+different from each other?
+
+```{r}
+
+# select fixed effects in the model 
+fe <- setdiff(names(fixef(model_rate)), "(Intercept)")
+# pair each of them in combinations of 2
+pairs <- t(combn(fe, 2))
+# we will test the hypotheses b1=b2 (b1-b2=0) for each pair
+# so we create the contrast matrix:
+K <- t(apply(pairs, 1, function(p) {
+  v <- setNames(numeric(length(fixef(model_rate))), names(fixef(model_rate)))
+  v[p[1]] <-  1
+  v[p[2]] <- -1
+  v
+}))
+# name each row
+rownames(K) <- apply(pairs, 1, function(p) paste(p[1], "=", p[2]))
+# general linear hyp using the model (estimated coefficients and their covariance matrix) 
+# and contrast matrix
+gl <- glht(model_rate, linfct = K)
+#test all contrasts with correction
+summary(gl, test = adjusted("single-step"))
+
+# Simultaneous 95% CIs
+confint(gl, calpha = multcomp::adjusted_calpha())
+```
+yep, slider and likert responses are not significantly different from each other.
+
+
+### Figure: Estimates of fixed effects (comprehension measures) on Speech Rate
+```{r}
+# Extract the fixed effects from the model (including confidence intervals)
+fixed_effects <- tidy(model_rate, effects = "fixed", conf.int = TRUE)
+
+# Filter out the intercept term
+fixed_effects <- fixed_effects %>%
+  filter(term != "(Intercept)")
+
+# Map the actual terms to custom axis labels
+term_mapping <- c(
+  "multiple_choice_accuracy" = "Multiple Choice Question Accuracy",
+  "glove_sum_max_similarity_rescaled" = "Summary Semantic Similarity",
+  "likert_rescaled" = "10-Point Scale",
+  "trial_median_rescaled" = "Median Real-Time Comprehension"
+)
+
+# Replace the term names with custom labels
+fixed_effects <- fixed_effects %>%
+  mutate(term = recode(term, !!!term_mapping))
+
+# Reorder the terms based on the estimate values in descending order
+fixed_effects <- fixed_effects %>%
+  mutate(term = reorder(term, -estimate))
+
+# Add a column for significance stars based on p-values
+fixed_effects <- fixed_effects %>%
+  mutate(sig_stars = case_when(
+    p.value < 0.001 ~ "***",
+    p.value < 0.01 ~ "**",
+    p.value < 0.05 ~ "*",
+    TRUE ~ ""
+  ))
+
+# Plot with ggplot2 - swapped x and y axes
+ggplot(fixed_effects, aes(y = term, x = estimate)) +  # Swapped axes
+  geom_point(aes(color = term), size = 3) +  # Add color to the points
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high, color = term), 
+                 height = 0, 
+                 width = 0) +  
+  geom_text(aes(label = paste0(round(estimate, 2), sig_stars)), vjust = -1, size = 4) +  
+  scale_color_manual(values = c(
+    "Multiple Choice Question Accuracy" = "violetred",
+    "10-Point Scale" = "royalblue",
+    "Summary Semantic Similarity" = "green3",
+    "Median Real-Time Comprehension" = "purple"
+  )) + 
+  labs(title = " ",
+       x = "Regression Coefficient Estimates",
+       y = NULL) +  
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18),  
+    axis.title.x = element_text(size = 13),              
+    axis.text.y = element_text(size = 13, color = "black"),  
+    axis.text.x = element_text(size = 12) 
+  ) + 
+  guides(color = "none") 
+
+```
+
+#DEMOGRAPHICS
+
+Excluded vs included participants:
+
+##Excluded
+Mean: 30.71
+sd:8.12
+median:27
+range:23-47
+gender:
+
+##Included
+Mean:23.26
+sd:5.31
+median:22
+range:18-39
+
+
+

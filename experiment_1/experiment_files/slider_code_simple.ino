@@ -1,3 +1,28 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:41e8879a9f015dbe9734ab46e4773c07fcacdb6418ff428acd38121d9c11d8a6
-size 488
+void setup() {
+  pinMode(13, OUTPUT);
+  analogReadResolution(8); // Can be 8, 10, 12 or 14
+  Serial.begin(500000);
+}
+
+void loop() {
+  static unsigned long start = 0;
+
+  if (start == 0)
+    start = micros();
+  else
+    delayMicroseconds(start - micros());
+
+  uint8_t raw = analogRead(A5);
+  analogWrite(13, raw);
+
+  Serial.printf("%d %u\n", raw, millis());
+
+  if ((micros() - start > 4000) && (micros() - start > 4294963295))
+  {
+    start += 8000;
+  }
+  else
+  {
+    start += 4000;
+  }
+}

@@ -1,3 +1,724 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:43e5074eac4b70f207ca8fc143ec0ee4cea5a7f7b8fc221b4d201c2c5be75abb
-size 22876
+---
+title: "Measuring Naturalistic Speech Comprehension in Real Time Exp 2"
+output: html_document
+
+---
+# DATA WRANGLING
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+# Load libraries
+
+library(stringr)
+library(fs)
+library(readxl)
+library(readr)
+library(simr)
+library(lmerTest)
+library(patchwork)
+library(RColorBrewer)
+library(cowplot)
+library(scales)
+library(gridExtra)
+library(PerformanceAnalytics)
+library(corrplot)
+library(Hmisc)
+library(GGally)
+library(visreg)
+library(broom.mixed)
+library(sjPlot)
+library(gridExtra)
+library(grid) 
+library(rempsyc)
+library(flextable)
+library(officer)
+library(ggsignif)
+library(MuMIn)
+library(rstatix)
+library(caret)
+library(modelr)
+library(tidyr)
+library(purrr)
+library(broom)
+library(dplyr)
+library(ggplot2)
+library(rsample)
+library(emmeans)
+library(readr)
+library(stringr)
+
+
+# set the default ggplot theme 
+theme_set(theme_classic())
+```
+
+```{r}
+# Set path and participant ids
+
+# Change the folder path to data folder relative to the wd
+folder_path <- '/Users/irmakergin/Desktop/experiment_2/data/raw_data'
+
+# Define the list of participant IDs
+participant_ids <- c("p_1","p_2","p_3","p_4","p_5","p_6","p_7","p_8","p_9",
+                     "p_10","p_11","p_12","p_13","p_14","p_15","p_16","p_17",
+                     "p_18","p_19","p_20","p_21","p_22","p_23","p_24","p_25",
+                     "p_26","p_27","p_28","p_29","p_30")
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Organize the data csv files
+
+# Get a list of all files in the folder
+files <- dir(folder_path, full.names = TRUE)
+
+# Set a path to save the organized files
+organized_data_path <- "/Users/irmakergin/Desktop/experiment_2/data/organized_data"
+
+# Find files by participant ID 
+for(part_id in participant_ids) {
+  
+  slider_pattern <- paste0("^slider_", part_id, "(?:[_\\.-]|$).*\\.csv$")
+  additional_csv_pattern <- paste0("^", part_id, "(?:[_\\.-]|$).*\\.csv$")
+
+  # Find slider files that match the pattern
+  slider_matched_files <- files[str_detect(basename(files), slider_pattern)]
+  
+  # Find data CSV files that match the pattern
+  additional_csv_matched_files <- files[str_detect(basename(files), additional_csv_pattern)]
+  
+  # Create a directory for the current participant on the organized data path
+  participant_folder <- file.path(organized_data_path, part_id)
+  if(!dir.exists(participant_folder)) {
+    dir.create(participant_folder, recursive = TRUE, showWarnings = TRUE)
+  }
+  
+  # Create a subdirectory for slider files within the participant folder
+  slider_folder <- file.path(participant_folder, paste0("slider_", part_id))
+  if(!dir.exists(slider_folder)) {
+    dir.create(slider_folder, recursive = TRUE, showWarnings = TRUE)
+  }
+  
+  # Move slider matched files to the slider subfolder
+  if(length(slider_matched_files) > 0) {
+    for(file in slider_matched_files) {
+      file_copy(file, file.path(slider_folder, basename(file)), overwrite = TRUE)
+    }
+  }
+  
+  # Move additional CSV matched files (experiment data) to the main participant folder 
+  # and rename the participant folders
+  if(length(additional_csv_matched_files) > 0) {
+    for(file in additional_csv_matched_files) {
+      new_name <- paste0(part_id, "_raw_data.csv")
+      file_copy(file, file.path(participant_folder, new_name), overwrite = TRUE)
+    }
+  }
+  
+  # Status check
+  if(length(slider_matched_files) > 0 || length(additional_csv_matched_files) > 0) {
+    cat("Files for participant ID '", part_id, 
+        "' have been organized successfully. Slider files in: ", slider_folder, 
+        ", other CSVs in: ", participant_folder, "\n")
+  } else {
+    cat("No files found for participant ID '", part_id, "'.\n")
+  }
+}
+
+# Loop through each participant ID
+for (part_id in participant_ids) {
+  # Define the path to the participant's raw data CSV
+  raw_data_path <- file.path(organized_data_path, 
+                             part_id, 
+                             paste0(part_id, "_raw_data.csv"))
+  
+  # Read and process the CSV for each participant
+  if (file.exists(raw_data_path)) {
+    
+    df.raw <- read_csv(raw_data_path) %>%
+      filter(!wav_file %in% c("Someday_trial_condition.wav", 
+                              "Someday_trial_condition-5x.wav")) %>%
+      mutate(index = row_number()) %>%
+      select(index, participant, wav_file, duration) %>%
+      group_by(wav_file) %>%
+      summarise(
+        index = first(index), 
+        participant = first(participant), 
+        duration = first(duration),
+        .groups = 'drop'
+      ) %>%
+      arrange(index) %>%
+      slice(-1) %>%  # Remove the first row
+      mutate(index = row_number()) %>%  # Recalculate index after row removal
+      rename(
+        overall_duration = duration,
+        part_wav_merged = wav_file
+      )
+    
+    # Save to global environment with participant-specific name
+    assign(paste0("df.raw.merged_", part_id), df.raw, envir = .GlobalEnv)
+    
+    # Remove temporary variable
+    rm(df.raw)
+  }
+}
+```
+
+```{r}
+meta_part1 <- read_excel("/Users/irmakergin/Desktop/experiment_2/someday_continuous_spedup_part1.xlsx") %>%
+  mutate(part = 1)
+
+meta_part2 <- read_excel("/Users/irmakergin/Desktop/experiment_2/someday_continuous_spedup_part2.xlsx") %>%
+  mutate(part = 2)
+
+meta_combined <- bind_rows(meta_part1, meta_part2) %>%
+  rename(
+    wav_index = index,
+    wav_name = file,
+    speech_rate = condition
+  ) %>%
+  select(wav_index, wav_name, speech_rate, part)
+
+m_rows <- nrow(meta_combined) 
+
+for (part_id in participant_ids) {
+  local({
+    df_name <- paste0("df.raw.merged_", part_id)
+    
+    if (exists(df_name, envir = .GlobalEnv)) {
+      df <- get(df_name, envir = .GlobalEnv)
+      n_rows <- nrow(df)
+      repeat_factor <- ceiling(m_rows / n_rows)
+      df_expanded <- df[rep(1:n_rows, times = repeat_factor), ]
+      df_expanded <- df_expanded[1:m_rows, ]
+      df_expanded$index <- seq_len(m_rows)
+
+      df_extended <- bind_cols(df_expanded, meta_combined)
+      df_extended$part_wav_merged <- ifelse(
+        df_extended$part == 1,
+        "someday_continuous_spedup_part1.wav",
+        "someday_continuous_spedup_part2.wav"
+      )
+      df_extended <- df_extended %>%
+        select(-part_wav_merged, everything(), part_wav_merged)
+
+      assign(df_name, df_extended, envir = .GlobalEnv)
+      cat("✓ Updated", df_name, "\n")
+    } else {
+      warning("No dataframe found for participant ID:", part_id)
+    }
+  })
+}
+```
+Merge conditions
+```{r}
+for (part_id in participant_ids) {
+  local({
+    df_name <- paste0("df.raw.merged_", part_id)
+    
+    if (exists(df_name, envir = .GlobalEnv)) {
+      df <- get(df_name, envir = .GlobalEnv)
+      
+      # Create a run ID for each consecutive group of same speech_rate
+      rle_result <- rle(df$speech_rate)
+      run_ids <- rep(seq_along(rle_result$lengths), rle_result$lengths)
+      df$run_id <- run_ids
+      
+      # Group by run_id only (not speech_rate), since we want to keep consecutive structure
+      df_grouped <- df %>%
+        group_by(run_id) %>%
+        summarise(
+          index = first(index),  # will be reassigned below anyway
+          participant = first(participant),
+          overall_duration = first(overall_duration),
+          wav_index = paste(wav_index, collapse = ","),
+          wav_name = paste(wav_name, collapse = ","),
+          speech_rate = first(speech_rate),
+          part = first(part),
+          part_wav_merged = first(part_wav_merged),
+          .groups = "drop"
+        ) %>%
+        mutate(index = row_number()) %>%
+        select(index, participant, overall_duration, wav_index, wav_name,
+               speech_rate, part, part_wav_merged)
+      
+      # Save updated dataframe
+      assign(df_name, df_grouped, envir = .GlobalEnv)
+      cat("✓ Grouped df.raw.merged_", part_id, " → ", nrow(df_grouped), " rows\n", sep = "")
+    }
+  })
+}
+```
+
+Add  Digit Span scores
+```{r}
+for (part_id in participant_ids) {
+  local({
+    df_name <- paste0("df.raw.merged_", part_id)
+    digit_path <- file.path("/Users/irmakergin/Desktop/experiment_2/data/organized_data", 
+                            paste0("digit_span_", part_id, ".xlsx"))
+    
+    if (exists(df_name, envir = .GlobalEnv) && file.exists(digit_path)) {
+      df <- get(df_name, envir = .GlobalEnv)
+      
+      # Read the digit span file and extract score
+      digit_df <- readxl::read_excel(digit_path)
+      score_value <- digit_df$score[1]  # assumes score is in first row
+      
+      # Add score to all rows
+      df$digit_span_score <- score_value
+      
+      # Save updated dataframe
+      assign(df_name, df, envir = .GlobalEnv)
+      cat("✓ Added digit span score for", part_id, "\n")
+    } else {
+      warning("Missing dataframe or digit span file for participant:", part_id)
+    }
+  })
+}
+```
+Add hearWHO scores
+
+```{r}
+# Load hearWHO scores once
+hearwho_path <- "/Users/irmakergin/Desktop/experiment_2/data/organized_data/hearwho_scores.xlsx"
+hearwho_df <- readxl::read_excel(hearwho_path)
+
+for (part_id in participant_ids) {
+  local({
+    df_name <- paste0("df.raw.merged_", part_id)
+    
+    if (exists(df_name, envir = .GlobalEnv)) {
+      df <- get(df_name, envir = .GlobalEnv)
+      
+      # Match participant row in hearWHO score sheet
+      match_row <- hearwho_df %>% filter(participant == part_id)
+      
+      if (nrow(match_row) == 1) {
+        score_value <- match_row$score[1]
+        df$digit_in_noise_score <- score_value
+        assign(df_name, df, envir = .GlobalEnv)
+        cat("✓ Added hearing score for", part_id, "\n")
+      } else {
+        warning("Could not find a unique hearing score for participant:", part_id)
+      }
+    } else {
+      warning("No dataframe found for participant:", part_id)
+    }
+  })
+}
+```
+Add slider values
+every condition except 1x is 7.55000 s long, 1x is 7.5000 s 
+```{r}
+
+
+# Function to split slider stream into exact time chunks based on trial durations
+split_slider_by_speech_rate <- function(slider_df, trial_df) {
+  slider_df <- slider_df %>% 
+    rename(time_ms = time, value = value) %>% 
+    mutate(time = time_ms / 1000)  # convert ms to sec
+  
+  result <- vector("list", nrow(trial_df))
+  current_time <- 0
+  for (i in seq_len(nrow(trial_df))) {
+    rate <- trial_df$speech_rate[i]
+    duration <- ifelse(rate == 1, 7.5, 7.55)
+    
+    # Slice from slider stream based on cumulative time window
+    trial_slice <- slider_df %>%
+      filter(time >= current_time & time < current_time + duration)
+    
+    # Save chunk
+    result[[i]] <- tibble(
+      slider_values = paste0("[", paste(trial_slice$value, collapse = ", "), "]"),
+      slider_times  = paste0("[", paste(trial_slice$time, collapse = ", "), "]")
+    )
+    
+    current_time <- current_time + duration
+  }
+
+  bind_rows(result)
+}
+
+# Loop over all participants and process their slider data
+for (part_id in participant_ids) {
+  local({
+    df_name <- paste0("df.raw.merged_", part_id)
+    
+    if (!exists(df_name, envir = .GlobalEnv)) {
+      warning("Missing merged dataframe for ", part_id)
+      return()
+    }
+    
+    df <- get(df_name, envir = .GlobalEnv)
+    
+    slider_dir <- file.path(organized_data_path, part_id, paste0("slider_", part_id))
+    slider_file1 <- list.files(slider_dir, pattern = "part1.*\\.csv$", full.names = TRUE)
+    slider_file2 <- list.files(slider_dir, pattern = "part2.*\\.csv$", full.names = TRUE)
+    
+    read_slider <- function(file) {
+      if (length(file) == 0) return(NULL)
+      df <- readr::read_csv(file, skip = 1, show_col_types = FALSE)
+      if (!all(c("value", "time") %in% names(df))) return(NULL)
+      return(df)
+    }
+    
+    s1 <- read_slider(slider_file1)
+    s2 <- read_slider(slider_file2)
+    
+    if (is.null(s1) || is.null(s2)) {
+      warning("Missing or malformed slider files for ", part_id)
+      return()
+    }
+    
+    # Split df into part1 and part2 trials
+    df1 <- df[1:80, ]
+    df2 <- df[81:160, ]
+    
+    # Assign slider chunks based on cumulative time windows per trial
+    chunks1 <- split_slider_by_speech_rate(s1, df1)
+    chunks2 <- split_slider_by_speech_rate(s2, df2)
+    
+    # Combine chunks
+    slider_combined <- bind_rows(chunks1, chunks2)
+    
+    if (nrow(slider_combined) != nrow(df)) {
+      warning("Slider chunk mismatch for ", part_id)
+    }
+    
+    df$slider_values <- slider_combined$slider_values
+    df$slider_times  <- slider_combined$slider_times
+    
+    assign(df_name, df, envir = .GlobalEnv)
+    cat("✓ Updated", df_name, "with time-based slider chunks\n")
+  })
+}
+
+
+```
+
+
+Rescale slider values to be between 0 and 1 
+```{r}
+for (part_id in participant_ids) {
+  local({
+    df_name <- paste0("df.raw.merged_", part_id)
+    
+    if (exists(df_name, envir = .GlobalEnv)) {
+      df <- get(df_name, envir = .GlobalEnv)
+
+      # Step 1: Parse slider_values from string to list of numeric vectors
+      df$slider_values <- strsplit(as.character(df$slider_values), ",\\s*|\\[|\\]")
+      df$slider_values <- lapply(df$slider_values, function(x) {
+        x <- x[nzchar(x)]  # remove empty strings
+        as.numeric(x)
+      })
+
+      # Step 2: Define rescaling function
+      rescale_values <- function(values) {
+        sapply(values, function(x) x / 255)
+      }
+
+      # Step 3: Apply rescaling
+      df$slider_values_rescaled <- lapply(df$slider_values, rescale_values)
+
+      # Save back to environment
+      assign(df_name, df, envir = .GlobalEnv)
+      cat("✓ Rescaled slider values for", df_name, "\n")
+    }
+  })
+}
+```
+
+merge all participant files into one
+```{r}
+# Get all participant merged dataframes
+participant_dfs <- mget(ls(pattern = "^df\\.raw\\.merged_"))
+
+# Combine all into one dataframe
+df.raw <- bind_rows(participant_dfs, .id = "source")
+
+# Extract participant ID from source column and create a proper 'participant' column
+df.raw <- df.raw %>%
+  mutate(participant = gsub("df\\.raw\\.merged_", "", source)) %>%
+  select(-source)
+
+```
+
+Add duration of each column
+
+```{r}
+
+# Step 1: Compute durations
+df.raw <- df.raw %>%
+  mutate(
+    slider_times = as.character(slider_times),
+    duration = map_dbl(slider_times, function(times_str) {
+      if (is.na(times_str) || times_str == "[]") return(NA_real_)
+      
+      times <- as.numeric(unlist(strsplit(gsub("\\[|\\]", "", times_str), ",\\s*")))
+      if (length(times) < 2 || anyNA(times)) return(NA_real_)
+      
+      max(times) - min(times)
+    })
+  )
+
+# Step 2: Summary
+summary(df.raw$duration)
+
+# Step 3: Get rows with min and max durations
+min_row <- df.raw %>% filter(duration == min(duration, na.rm = TRUE))
+max_row <- df.raw %>% filter(duration == max(duration, na.rm = TRUE))
+
+# Step 4: Print full row info, including slider_times
+cat("\n--- Row with MIN duration ---\n")
+print(min_row %>% select(everything(), slider_times))
+
+cat("\n--- slider_times for MIN duration row ---\n")
+cat(min_row$slider_times, "\n")
+
+cat("\n--- Row with MAX duration ---\n")
+print(max_row %>% select(everything(), slider_times))
+
+cat("\n--- slider_times for MAX duration row ---\n")
+cat(max_row$slider_times, "\n")
+
+
+```
+
+```{r}
+# Save merged dataframe for slider visualizations
+# Make a copy first so we don't modify df.raw directly
+df.export <- df.raw
+
+# Convert list columns to character strings (if they are lists)
+list_cols <- sapply(df.export, is.list)
+
+df.export[list_cols] <- lapply(df.export[list_cols], function(col) {
+  sapply(col, function(x) paste(x, collapse = ","))
+})
+
+# Write to CSV
+write.csv(df.export, file = "/Users/irmakergin/Desktop/experiment_2/data/organized_data/df.raw.csv", row.names = FALSE)
+
+```
+
+## Exclusion Criteria 
+###  Slider movements
+For the physical slider to ensure that participants actually used it actively: Distribution of the amount of slider movements across trials and participants- If a participant's slider movements exceeds ±3.5 standard deviations from the mean, we will remove those participants' data.
+
+
+```{r}
+# Calculate movement score with magnitude for each trial
+df.raw <- df.raw %>%
+  rowwise() %>%
+  mutate(trial_movement_score_magnitude = sum(abs(diff(unlist(slider_values))))) %>%
+  ungroup()
+
+# Aggregate these scores for each participant
+participant_movement_scores <- df.raw %>%
+  group_by(participant) %>%
+  summarise(movement_score_all = sum(trial_movement_score_magnitude, na.rm = TRUE))
+
+# Add the movement scores back to the df
+df.raw <- left_join(df.raw, participant_movement_scores, by = "participant")
+
+# Calculate mean and standard deviation for movement scores, identify outliers
+mean_movement_score <- mean(participant_movement_scores$movement_score_all, na.rm = TRUE)
+sd_movement_score <- sd(participant_movement_scores$movement_score_all, na.rm = TRUE)
+
+cutoff_upper <- mean_movement_score + 3.5 * sd_movement_score
+cutoff_lower <- mean_movement_score - 3.5 * sd_movement_score
+
+outliers <- participant_movement_scores %>%
+  filter(movement_score_all < cutoff_lower | movement_score_all > cutoff_upper) %>%
+  pull(participant)
+
+# Print participant IDs for those outside the ±3.5 SD range
+cat("Participants outside the ±3.5 SD range:", paste(outliers, collapse = ", "), "\n")
+```
+# ANALYSIS
+
+## Do median slider responses for each speech rate significantly different than each other?
+
+First let's get mean slider responses per trial
+```{r}
+df.data <- df.raw %>%
+  ungroup() %>%  
+  mutate(
+    trial_mean_rescaled   = map_dbl(slider_values_rescaled, ~ mean(.x, na.rm = TRUE)),
+    trial_median_rescaled = map_dbl(slider_values_rescaled, ~ median(.x, na.rm = TRUE))
+  )
+
+```
+
+Does speech_rate have a significant effect on slider responses overall?
+
+
+```{r}
+m_rate <- lmer(
+  trial_median_rescaled ~ speech_rate +
+    (1 | digit_span_score) + (1 | digit_in_noise_score),
+  data = df.data
+)
+summary(m_rate) #Estimates for each level of sr vs x1
+#anova(m_rate) is this useful:
+# Does including speech_rate as a predictor significantly improve the model fit compared to a model with just the intercept and random effects?
+
+#pairwise comparisons
+emm <- emmeans(m_rate, ~ speech_rate)
+pairs(emm, adjust = "tukey")  
+```
+
+```{r}
+pwpp(emm, adjust = "tukey") +
+  labs(title = "Pairwise comparisons (Tukey-adjusted p-values)")
+
+# model-estimated marginal means (EMMs) for each speech rate — i.e., the mean of 
+# outcome predicted by the model
+```
+
+```{r}
+# --- EMMs and CIs for bar heights ---
+emm    <- emmeans(m_rate, ~ speech_rate)
+emm_ci <- as.data.frame(confint(emm))
+
+# robust CI colnames
+nm <- names(emm_ci)
+lower_col <- intersect(c("lower.CL","asymp.LCL","LCL"), nm)[1]
+upper_col <- intersect(c("upper.CL","asymp.UCL","UCL"), nm)[1]
+
+bar_df <- emm_ci %>%
+  rename(lower = all_of(lower_col), upper = all_of(upper_col)) %>%
+  mutate(
+    rate_num = readr::parse_number(as.character(speech_rate))
+  ) %>%
+  arrange(rate_num) %>%
+  mutate(
+    speech_rate = factor(as.character(speech_rate),
+                         levels = as.character(speech_rate))
+  )
+
+# --- Tukey pairs (parse numeric labels!) ---
+pairs_df <- as.data.frame(pairs(emm, adjust = "tukey")) %>%
+  separate(contrast, c("group1","group2"), sep = " - ", remove = TRUE) %>%
+  mutate(
+    g1_num = readr::parse_number(group1),
+    g2_num = readr::parse_number(group2),
+    stars  = case_when(
+      p.value < .001 ~ "***",
+      p.value < .01  ~ "**",
+      p.value < .05  ~ "*",
+      TRUE           ~ "ns"
+    )
+  )
+
+# keep only significant (or comment this line to show all)
+pairs_df <- filter(pairs_df, stars != "ns")
+
+# map to x positions using the numeric value
+lvl_nums <- bar_df$rate_num
+pairs_df <- pairs_df %>%
+  mutate(
+    x1 = match(g1_num, lvl_nums),
+    x2 = match(g2_num, lvl_nums)
+  ) %>%
+  drop_na(x1, x2) %>%         # drop any residual mismatches
+  arrange(x1, x2)
+
+# --- y positions with plenty of headroom ---
+yrng <- range(c(bar_df$lower, bar_df$upper), na.rm = TRUE)
+span <- diff(yrng)
+if (!is.finite(span) || span == 0) span <- max(bar_df$emmean, na.rm = TRUE)
+
+step  <- 0.08 * span                              # vertical spacing between brackets
+basey <- max(bar_df$upper, na.rm = TRUE) + 0.04*span
+
+ann <- pairs_df %>%
+  mutate(
+    layer = row_number(),
+    y     = pmax(bar_df$upper[x1], bar_df$upper[x2]) + 0.02*span + step*(layer - 1)
+  )
+
+# --- Plot: bars + CI + manual brackets + asterisks ---
+ggplot(bar_df, aes(x = speech_rate, y = emmean)) +
+  geom_col(width = 0.8, fill = "grey70", color = "grey30") +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.08, linewidth = 0.6) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.60))) +  # headroom for many brackets
+  coord_cartesian(clip = "off") +
+  # bracket horizontals
+  geom_segment(data = ann, aes(x = x1, xend = x2, y = y, yend = y),
+               linewidth = 0.6, inherit.aes = FALSE) +
+  # bracket vertical ticks
+  geom_segment(data = ann, aes(x = x1, xend = x1, y = y, yend = y - 0.12*step),
+               linewidth = 0.6, inherit.aes = FALSE) +
+  geom_segment(data = ann, aes(x = x2, xend = x2, y = y, yend = y - 0.12*step),
+               linewidth = 0.6, inherit.aes = FALSE) +
+  # asterisks
+  geom_text(data = ann, aes(x = (x1 + x2)/2, y = y + 0.12*step, label = stars),
+            size = 4, inherit.aes = FALSE) +
+  labs(x = "Speech rate", y = "Median slider (EMM ± 95% CI)",
+       title = "Estimated marginal means by speech rate",
+       subtitle = "Brackets show Tukey-adjusted pairwise tests (* p<.05, ** p<.01, *** p<.001)") +
+  theme_classic(base_size = 13)
+
+
+
+```
+
+```{r}
+plot(emm)   # plot  EMMs with 95% CIs
+
+```
+## Is there a difference between dominant vs non-dominant hand?
+We asked people to use their left hand during the first half and right hand
+during the second half
+```{r}
+df.hand <- df.data %>%
+  group_by(speech_rate, part) %>%
+  summarise(
+    mean_median = mean(trial_median_rescaled, na.rm = TRUE),
+    se = sd(trial_median_rescaled, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+ggplot(
+  df.hand %>% mutate(part = factor(part, levels = c(1, 2), 
+                                   labels = c("Left","Right"))),
+  aes(x = factor(speech_rate), y = mean_median, fill = part)
+) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(
+    aes(ymin = mean_median - se, ymax = mean_median + se),
+    width = 0.2, position = position_dodge(width = 0.9)
+  ) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.25),
+    labels = sprintf("%.2f", seq(0, 1, 0.25)),
+    expand = c(0, 0)    # removes the gap below 0
+  ) +
+  scale_fill_manual(
+    name = "Hand used",
+    values = c("Left" = "#FFC0CB",  # baby pink
+               "Right" = "#F2A337") # baby blue
+  ) +
+  labs(x = "Speech Rate", y = "Mean of Median Slider Response")
+```
+
+
+```{r}
+m_part <- lmer(
+  trial_median_rescaled ~ speech_rate * part +
+    (1|digit_span_score) + (1|digit_in_noise_score),
+  data = df.data
+)
+summary (m_part)
+```
+
+Compare models with(out) fixed effects and interaction
+```{r}
+anova(m_part)   # omnibus test
+```
+So the median slider responses change with speech rate but not with the hand\
+used, and there is no interaction between the two.
